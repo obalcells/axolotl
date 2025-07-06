@@ -6,9 +6,12 @@ It implements a custom trainer that combines standard language modeling loss wit
 a binary classification loss from a linear probe head attached to intermediate layers.
 """
 
+from typing import Optional
+
 from axolotl.integrations.base import BasePlugin
 from axolotl.utils.collators import DataCollatorForSeq2Seq
 
+from .model import HookedModel, add_probe_head
 from .args import HookedLoraProbeArgs # pylint: disable=unused-import. # noqa: F401
 
 class HookedLoraProbePlugin(BasePlugin):
@@ -37,19 +40,23 @@ class HookedLoraProbePlugin(BasePlugin):
     
     def get_collator_cls_and_kwargs(self, cfg, is_eval=False):
         """Return custom data collator for probe training."""
-        # if cfg.hooked_lora_probe_enabled:
-        #     from .collator import HookedLoraProbeDataCollator
-        #     return HookedLoraProbeDataCollator, {}
         return DataCollatorForSeq2Seq, {}
     
-    def post_model_load(self, cfg, model) -> None:
+    def pre_lora_load(self, cfg, model) -> Optional[HookedModel]:
         """Add probe head to the model after loading."""
-        # if cfg.hooked_lora_probe_enabled:
-        #     from .model import add_probe_head
-        #     model = add_probe_head(model, cfg)
-        # return model
-        pass
-    
+        if cfg.hooked_lora_probe_enabled:
+            from .model import add_probe_head
+            print("-----------")
+            print(f"src.axolotl.integrations.hooked_lora_probe.HookedLoraProbePlugin.pre_lora_load:54")
+            print(f"type(model): {type(model)}")
+            print(f"model: {repr(model)[:400]}")
+            hooked_model = add_probe_head(model, cfg)
+            print(f"hooked_model: {type(hooked_model)}")
+            print(f"hooked_model: {repr(hooked_model)[:400]}")
+            print("-----------")
+            return hooked_model
+        return None
+
     def add_callbacks_post_trainer(self, cfg, trainer):
         """Add probe-specific callbacks."""
         if cfg.hooked_lora_probe_enabled:

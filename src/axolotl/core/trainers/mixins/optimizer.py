@@ -60,6 +60,21 @@ class OptimizerMixin(Trainer):
                     params["to_weight_decay"][name] = param
             else:
                 params["no_weight_decay"][name] = param
+        
+        # TODO: remove this
+        # Debug print to show which parameters are being trained
+        # total_trainable_params = sum(len(param_dict) for param_dict in params.values())
+        # print(f"=== TRAINABLE PARAMETERS DEBUG ===")
+        # print(f"Total trainable parameters: {total_trainable_params}")
+        # for category, param_dict in params.items():
+        #     if param_dict:
+        #         print(f"{category}: {len(param_dict)} parameters")
+        #         for param_name in list(param_dict.keys())[:5]:  # Show first 5 parameter names
+        #             print(f"  - {param_name}")
+        #         if len(param_dict) > 5:
+        #             print(f"  ... and {len(param_dict) - 5} more")
+        # print(f"==================================")
+        
         optimizer_grouped_parameters = []
         if params["to_weight_decay"]:
             optimizer_grouped_parameters.append(
@@ -112,10 +127,27 @@ class OptimizerMixin(Trainer):
             and self.args.lr_groups is None
             and self.optimizer_cls_and_kwargs is None
         ):
+            # TODO: remove this
+            # print("OptimizerMixin.create_optimizer: using super().create_optimizer()")
+            # print(f"\n--------------------------------")
+            # opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
+            # print(f"OptimizerMixin.create_optimizer: opt_model: {opt_model}")
+            # print(f"opt_model.named_parameters():")
+            # for name, param in opt_model.named_parameters():
+            #     print(f"  - {name}: {param.shape} {param.requires_grad}")
+            # print(f"--------------------------------")
             return super().create_optimizer()
 
         assert not is_sagemaker_mp_enabled(), "We assume that sagemaker mp is not enabled"
         opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
+
+        # TODO: remove this
+        # print(f"\n--------------------------------")
+        # print(f"OptimizerMixin.create_optimizer: opt_model: {opt_model}")
+        # print(f"opt_model.named_parameters():")
+        # for name, param in opt_model.named_parameters():
+        #     print(f"  - {name}: {param.shape} {param.requires_grad}")
+        # print(f"--------------------------------")
 
         if (
             not self.optimizer
@@ -197,6 +229,14 @@ class OptimizerMixin(Trainer):
             self.optimizer = smp.DistributedOptimizer(  # pylint: disable=attribute-defined-outside-init
                 self.optimizer
             )
+
+        # TODO: remove this
+        # # Debug print to show which parameters are being trained
+        # print(f"=== TRAINABLE PARAMETERS DEBUG ===")
+        # print(f"Total trainable parameters: {len(self.optimizer.param_groups)}")
+        # for param_group in self.optimizer.param_groups:
+        #     print(f"param_group: {param_group}")
+        # print(f"==================================")
 
         return self.optimizer
 

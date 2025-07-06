@@ -120,12 +120,12 @@ class HookedLoraProbeEvaluationCallback(TrainerCallback):
                     valid_probs = torch.sigmoid(valid_logits)
                     
                     # Convert to binary predictions
-                    valid_preds = (valid_probs >= self.probe_threshold).float()
+                    valid_preds = (valid_probs >= self.probe_threshold)
                     
                     # Collect for metrics computation
-                    all_predictions.extend(valid_preds.cpu().numpy())
-                    all_labels.extend(valid_labels.cpu().numpy())
-                    all_probs.extend(valid_probs.cpu().numpy())
+                    all_predictions.extend(valid_preds.float().cpu().numpy())
+                    all_labels.extend(valid_labels.float().cpu().numpy())
+                    all_probs.extend(valid_probs.float().cpu().numpy())
         
         # Compute metrics if we have predictions
         if len(all_predictions) > 0:

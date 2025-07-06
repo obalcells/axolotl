@@ -7,7 +7,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from jaxtyping import Float, Int
 from torch import Tensor
-from typing import Dict, Optional, Any, Tuple
+from typing import Dict, Optional, Any, Tuple, Union
+from transformers import PreTrainedModel
+from peft import PeftModelForCausalLM
+from deepspeed import DeepSpeedEngine
 
 from axolotl.core.trainers.base import AxolotlTrainer
 
@@ -28,16 +31,16 @@ def get_token_labels(input_ids: Int[Tensor, 'batch_size seq_len']) -> Float[Tens
     """
     # Define frequent tokens that are likely to be hallucinated
     frequent_token_ids = {
-        1820,  # 'the'
-        438,   # 'and' 
-        285,   # 'is'
-        258,   # 'in'
-        998,   # 'to'
-        1073,  # 'of'
-        64,    # 'a'
-        9210,  # 'that'
-        275,   # 'it'
-        4291,  # 'with'
+        # 1820,  # 'the'
+        # 438,   # 'and' 
+        # 285,   # 'is'
+        # 258,   # 'in'
+        # 998,   # 'to'
+        # 1073,  # 'of'
+        # 64,    # 'a'
+        # 9210,  # 'that'
+        # 275,   # 'it'
+        # 4291,  # 'with'
     }
     
     # Create labels tensor with same shape as input_ids
@@ -47,7 +50,7 @@ def get_token_labels(input_ids: Int[Tensor, 'batch_size seq_len']) -> Float[Tens
     for token_id in frequent_token_ids:
         token_labels[input_ids == token_id] = 1.0
     
-    return token_labels.float()
+    return token_labels
 
 class HookedLoraProbeTrainer(AxolotlTrainer):
     """
@@ -59,15 +62,6 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
     """
     
     def __init__(self, *args, **kwargs):
-        print("HookedLoraProbeTrainer.__init__")
-        print(f"kwargs: {kwargs.keys()}")
-        print(f"args: {args}")
-        print("-" * 100 + "\n")
-
-        model = kwargs.pop("model")
-        hooked_model = add_probe_head(model, {"probe_layer_idx": 30})
-        kwargs["model"] = hooked_model
-
         super().__init__(*args, **kwargs)
         
         # Extract probe-specific configuration
@@ -88,20 +82,32 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         Returns:
             Combined loss tensor, optionally with outputs
         """
+
+        # print("-----------")
+        # print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer.compute_loss:99")
+        # for i, group in enumerate(self.optimizer.param_groups):
+        #     print(f"Parameter group {i}:")
+        #     for j, param in enumerate(group['params']):
+        #         print(f"  Parameter {j}: shape {param.shape}, requires_grad={param.requires_grad}")
+        # print("-----------")
+
         # Extract inputs
         input_ids: Int[Tensor, 'batch_size seq_len'] = inputs["input_ids"]
         attention_mask: Int[Tensor, 'batch_size seq_len'] = inputs["attention_mask"]
         lm_labels: Int[Tensor, 'batch_size seq_len'] = inputs["labels"]  # For language modeling loss
         # token_labels: Float[Tensor, 'batch_size seq_len'] = inputs["token_labels"]  # For probe classification loss
         token_labels: Float[Tensor, 'batch_size seq_len'] = get_token_labels(input_ids)
-        
+
         # Forward pass
         outputs = model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=lm_labels,
         )
-        
+
+        # TODO: Remove this
+        self._debug_model_weights(model)
+
         # Get outputs
         lm_logits: Float[Tensor, 'batch_size seq_len vocab_size'] = outputs["lm_logits"]
         probe_logits: Float[Tensor, 'batch_size seq_len'] = outputs["probe_logits"].squeeze(-1)
@@ -225,26 +231,28 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             
             return (loss, probe_logits, token_labels)
     
-    def log(self, logs: Dict[str, float]) -> None:
-        """
-        Log training metrics.
-        
-        Args:
-            logs: Dict of metrics to log
-        """
-        # Add to trainer's log history
-        if self.state.log_history:
-            self.state.log_history[-1].update(logs)
-        else:
-            self.state.log_history.append(logs)
-        
-        # Print metrics every logging_steps
-        if self.state.global_step % self.args.logging_steps == 0:
-            print(f"Step {self.state.global_step}: {logs}")
-        
-        # Call parent log method
-        super().log(logs)
-
     def _wrap_model(self, model, training=True, dataloader=None):
-        print(f"HookedLoraProbeTrainer._wrap_model")
-        return super()._wrap_model(model._model, training=training, dataloader=dataloader)
+        wrapped_model = super()._wrap_model(model, training=training, dataloader=dataloader)
+        print("------------")
+        print(f"HookedLoraProbeTrainer._wrap_model:272")
+        print(f"type(model): {type(model)}")
+        print(f"_wrap_model:276")
+        print(f"wrapped_model: {type(wrapped_model)}")
+        print("------------")
+        return wrapped_model
+
+    def _debug_model_weights(self, model: Union[PreTrainedModel, PeftModelForCausalLM, HookedModel, DeepSpeedEngine]):
+        print(f"--------------------------------")
+        print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer._debug_model_weights:253")
+        print(f"type(model): {type(model)}")
+        print(f"model: {repr(model)[:300]}")
+
+        if not isinstance(model, DeepSpeedEngine):
+            print(f"linear_head weights: {model.probe_head.linear.weight}")
+            print(f"model.model.layers.13.mlp.down_proj.lora_B.default.weight: {model._model.model.layers[13].mlp.down_proj.lora_B.default.weight}")
+        else:
+            print(f"(DeepSpeedEngine detected)")
+            print(f"linear_head weights: {model.module.probe_head.linear.weight}")
+            print(f"model.model.layers.13.mlp.down_proj.lora_B.default.weight: {model.module._model.model.layers[13].mlp.down_proj.lora_B.default.weight}")
+
+        print(f"--------------------------------")

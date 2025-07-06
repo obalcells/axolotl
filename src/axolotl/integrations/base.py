@@ -441,7 +441,10 @@ class PluginManager:  # pylint: disable=too-many-public-methods
             model: The loaded model.
         """
         for plugin in self.plugins.values():
-            plugin.post_model_build(cfg, model)
+            post_model_build_reassigned = plugin.post_model_build(cfg, model)
+            if post_model_build_reassigned is not None:
+                return post_model_build_reassigned
+        return None
 
     def pre_lora_load(self, cfg: DictDefault, model: PreTrainedModel):
         """Calls the `pre_lora_load` method of all registered plugins.
@@ -451,7 +454,10 @@ class PluginManager:  # pylint: disable=too-many-public-methods
             model: The loaded model.
         """
         for plugin in self.plugins.values():
-            plugin.pre_lora_load(cfg, model)
+            pre_lora_load_reassigned = plugin.pre_lora_load(cfg, model)
+            if pre_lora_load_reassigned is not None:
+                return pre_lora_load_reassigned
+        return None
 
     def post_lora_load(self, cfg: DictDefault, model: PreTrainedModel | PeftModel):
         """Calls the `post_lora_load` method of all registered plugins.
@@ -461,7 +467,10 @@ class PluginManager:  # pylint: disable=too-many-public-methods
             model: The loaded model.
         """
         for plugin in self.plugins.values():
-            plugin.post_lora_load(cfg, model)
+            post_lora_load_reassigned = plugin.post_lora_load(cfg, model)
+            if post_lora_load_reassigned is not None:
+                return post_lora_load_reassigned
+        return None
 
     def post_model_load(self, cfg: DictDefault, model: PreTrainedModel | PeftModel):
         """Calls the `post_model_load` method of all registered plugins after the model
@@ -472,7 +481,9 @@ class PluginManager:  # pylint: disable=too-many-public-methods
             model: The loaded model.
         """
         for plugin in self.plugins.values():
-            plugin.post_model_load(cfg, model)
+            post_model_load_reassigned = plugin.post_model_load(cfg, model)
+            if post_model_load_reassigned is not None:
+                return post_model_load_reassigned
 
     def get_trainer_cls(self, cfg: DictDefault) -> Trainer | None:
         """Calls the `get_trainer_cls` method of all registered plugins and returns the

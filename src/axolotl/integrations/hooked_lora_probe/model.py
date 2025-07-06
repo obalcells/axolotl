@@ -8,8 +8,9 @@ from jaxtyping import Float, Int
 from torch import Tensor
 from typing import List, Optional, Dict, Any
 from transformers import PreTrainedModel
-from peft import PeftModel
-
+from abc import ABC
+from peft import PeftModel, PeftModelForCausalLM
+from collections.abc import Callable
 
 class LinearHead(nn.Module):
     """Linear probe head."""
@@ -39,15 +40,20 @@ class HookedModel(nn.Module):
     
     def __init__(self, model: PreTrainedModel, probe_layer_idx: int, hidden_size: int):
         super().__init__()
+
+        print("-----------")
+        print(f"HookedModel.__init__:45")
+        print(f"type(model): {type(model)}")
+        print(f"model.__class__: {model.__class__}")
+        print("-----------")
+
         self._model = model
-        self.probe_head = LinearHead(hidden_size, device=model.device, dtype=model.dtype)
         self.probe_layer_idx = probe_layer_idx
-        
-        # Storage for hooked activations
         self._hooked_activations = None
         self._probe_hook_handle = None
+
+        self.probe_head = LinearHead(hidden_size, device=model.device, dtype=model.dtype)
         
-        # Register hook
         self._register_probe_hook()
     
     def _register_probe_hook(self):
@@ -98,7 +104,13 @@ class HookedModel(nn.Module):
         """
         # Reset hooked activations
         self._hooked_activations = None
-        
+
+        print("-----------")
+        print(f"HookedModel.forward")
+        print(f"type(self._model): {type(self._model)}")
+        print(f"repr(self._model): {repr(self._model)[:100]}")
+        print("-----------")
+
         # Forward pass through the model
         outputs = self._model(
             input_ids=input_ids,
@@ -126,7 +138,7 @@ class HookedModel(nn.Module):
     def __setattr__(self, name, value):
         """Delegate attribute setting to the underlying model when appropriate."""
         # Always set our core attributes on self first
-        our_attributes = {'model', 'probe_head', 'probe_layer_idx', '_hooked_activations', '_probe_hook_handle'}
+        our_attributes = {'_model', 'probe_head', 'probe_layer_idx', '_hooked_activations', '_probe_hook_handle'}
         
         if name in our_attributes:
             # Always set our own core attributes on self
@@ -141,6 +153,20 @@ class HookedModel(nn.Module):
             else:
                 # Otherwise set on self
                 super().__setattr__(name, value)
+
+    def __getattr__(self, name):
+        """Delegate ALL attribute access to the underlying model."""
+        # This method is only called when the attribute is not found on self
+        # By this point, self.model should always be set (after __init__)
+        our_attributes = {'_model', 'probe_head', 'probe_layer_idx', '_hooked_activations', '_probe_hook_handle'}
+
+        if name in our_attributes:
+            return super().__getattr__(name)
+        
+        try:
+            return getattr(self._model, name)
+        except AttributeError:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
     
     def __call__(self, *args, **kwargs):
         """Ensure calling the object uses our forward method."""
@@ -284,5 +310,17 @@ def add_probe_head(model: PreTrainedModel, cfg: dict) -> HookedModel:
         probe_layer_idx=probe_layer_idx,
         hidden_size=hidden_size
     )
+
+    print("-----------")
+    print(f"model.__class__: {model.__class__}")
+    print(f"isinstance(probe_model, model.__class__): {isinstance(probe_model, model.__class__)}")
+    print(f"isinstance(probe_model, PeftModelForCausalLM): {isinstance(probe_model, PeftModelForCausalLM)}")
+    print(f"isinstance(probe_model, PreTrainedModel): {isinstance(probe_model, PreTrainedModel)}")
+    print("-----------")
     
     return probe_model
+
+# Register HookedModel as a virtual subclass of PeftModelForCausalLM
+# This allows isinstance(hooked_model, PeftModelForCausalLM) to return True
+# without requiring multiple inheritance
+# PeftModelForCausalLM.register(HookedModel)
