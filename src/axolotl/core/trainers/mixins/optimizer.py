@@ -114,6 +114,7 @@ class OptimizerMixin(Trainer):
         ):
             return super().create_optimizer()
 
+        assert not is_sagemaker_mp_enabled(), "We assume that sagemaker mp is not enabled"
         opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
 
         if (

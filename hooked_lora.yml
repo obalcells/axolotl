@@ -1,0 +1,86 @@
+base_model: meta-llama/Meta-Llama-3.1-8B-Instruct
+model_type: LlamaForCausalLM
+tokenizer_type: AutoTokenizer
+# Automatically upload checkpoint and final model to HF
+# hub_model_id: obalcells/hooked-lora-axolotl
+
+load_in_8bit: true
+load_in_4bit: false
+
+chat_template: llama3
+datasets:
+  - path: winglian/pirate-ultrachat-10k
+    type: chat_template
+    split: train
+    eot_tokens: <|end_of_text|>
+
+adapter: lora
+lora_model_dir:
+
+val_set_size: 0.1
+output_dir: ./outputs/llama3_1_8b_hooked_lora_probe_v1
+
+# sequence_len: 1200
+sample_packing: false
+# pad_to_sequence_len: true
+
+lora_r: 32
+lora_alpha: 64
+lora_dropout: 0.05
+lora_target_modules:
+  - gate_proj
+  - down_proj
+  - up_proj
+  - q_proj
+  - v_proj
+  - k_proj
+  - o_proj
+
+wandb_project:
+wandb_entity:
+wandb_watch:
+wandb_name:
+wandb_log_model:
+
+gradient_accumulation_steps: 2
+micro_batch_size: 4
+num_epochs: 1
+
+optimizer: paged_adamw_8bit
+lr_scheduler: cosine
+learning_rate: 1e-4
+# learning_rate: 1e-5 <- for later when training the probe
+
+bf16: auto
+tf32: false
+
+gradient_checkpointing: true
+resume_from_checkpoint:
+logging_steps: 1
+flash_attention: true
+
+loss_watchdog_threshold: 5.0
+loss_watchdog_patience: 3
+
+warmup_steps: 5
+evals_per_epoch: 4
+saves_per_epoch: 1
+weight_decay: 0.0
+special_tokens:
+  pad_token: "<|end_of_text|>"
+
+dataloader_prefetch_factor: 8
+dataloader_num_workers: 2
+dataloader_pin_memory: true
+
+plugins:
+  - axolotl.integrations.hooked_lora_probe.HookedLoraProbePlugin
+
+hooked_lora_probe_enabled: true
+probe_layer_idx: 30
+probe_threshold: 0.5
+lambda_lm: 0.0
+
+# ---
+
+max_steps: 300
