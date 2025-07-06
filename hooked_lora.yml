@@ -9,12 +9,20 @@ tokenizer_type: AutoTokenizer
 load_in_8bit: true
 load_in_4bit: false
 
-chat_template: llama3
+# chat_template: llama3
+# datasets:
+#   - path: winglian/pirate-ultrachat-10k
+#     type: chat_template
+#     split: train
+#     eot_tokens: <|end_of_text|>
 datasets:
-  - path: winglian/pirate-ultrachat-10k
-    type: chat_template
-    split: train
-    eot_tokens: <|end_of_text|>
+  - path: ./axolotl/prepared_datasets/hallucination_probe_datasets
+    type:
+    columns_to_keep:
+      - input_ids
+      - attention_mask
+      - labels
+      - probe_labels
 
 adapter: lora
 lora_model_dir:
@@ -22,7 +30,7 @@ lora_model_dir:
 val_set_size: 0
 output_dir: ./outputs/llama3_1_8b_hooked_lora_probe_v1
 
-# sequence_len: 1200
+sequence_len: 1200
 sample_packing: false
 # pad_to_sequence_len: true
 

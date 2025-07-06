@@ -41,12 +41,6 @@ class HookedModel(nn.Module):
     def __init__(self, model: PreTrainedModel, probe_layer_idx: int, hidden_size: int):
         super().__init__()
 
-        print("-----------")
-        print(f"HookedModel.__init__:45")
-        print(f"type(model): {type(model)}")
-        print(f"model.__class__: {model.__class__}")
-        print("-----------")
-
         self._model = model
         self.probe_layer_idx = probe_layer_idx
         self._hooked_activations = None
@@ -104,12 +98,6 @@ class HookedModel(nn.Module):
         """
         # Reset hooked activations
         self._hooked_activations = None
-
-        print("-----------")
-        print(f"HookedModel.forward")
-        print(f"type(self._model): {type(self._model)}")
-        print(f"repr(self._model): {repr(self._model)[:100]}")
-        print("-----------")
 
         # Forward pass through the model
         outputs = self._model(
@@ -302,8 +290,6 @@ def add_probe_head(model: PreTrainedModel, cfg: dict) -> HookedModel:
         # Some models like Gemma have nested config
         hidden_size = model.config.text_config.hidden_size
     
-    print(f"Adding probe head at layer {probe_layer_idx} with hidden size {hidden_size}")
-    
     # Create probe model
     probe_model = HookedModel(
         model=model,
@@ -311,13 +297,6 @@ def add_probe_head(model: PreTrainedModel, cfg: dict) -> HookedModel:
         hidden_size=hidden_size
     )
 
-    print("-----------")
-    print(f"model.__class__: {model.__class__}")
-    print(f"isinstance(probe_model, model.__class__): {isinstance(probe_model, model.__class__)}")
-    print(f"isinstance(probe_model, PeftModelForCausalLM): {isinstance(probe_model, PeftModelForCausalLM)}")
-    print(f"isinstance(probe_model, PreTrainedModel): {isinstance(probe_model, PreTrainedModel)}")
-    print("-----------")
-    
     return probe_model
 
 # Register HookedModel as a virtual subclass of PeftModelForCausalLM

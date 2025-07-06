@@ -16,41 +16,6 @@ from axolotl.core.trainers.base import AxolotlTrainer
 
 from .model import HookedModel, add_probe_head
 
-def get_token_labels(input_ids: Int[Tensor, 'batch_size seq_len']) -> Float[Tensor, 'batch_size seq_len']:
-    """
-    Generate token labels for hallucination detection.
-    
-    Labels are 1 for frequent tokens that are likely to be hallucinated,
-    0 for all other tokens.
-    
-    Args:
-        input_ids: [batch_size, seq_len] token IDs
-        
-    Returns:
-        token_labels: [batch_size, seq_len] binary labels
-    """
-    # Define frequent tokens that are likely to be hallucinated
-    frequent_token_ids = {
-        # 1820,  # 'the'
-        # 438,   # 'and' 
-        # 285,   # 'is'
-        # 258,   # 'in'
-        # 998,   # 'to'
-        # 1073,  # 'of'
-        # 64,    # 'a'
-        # 9210,  # 'that'
-        # 275,   # 'it'
-        # 4291,  # 'with'
-    }
-    
-    # Create labels tensor with same shape as input_ids
-    token_labels = torch.zeros_like(input_ids, dtype=torch.float)
-    
-    # Set labels to 1 for frequent tokens
-    for token_id in frequent_token_ids:
-        token_labels[input_ids == token_id] = 1.0
-    
-    return token_labels
 
 class HookedLoraProbeTrainer(AxolotlTrainer):
     """
@@ -68,14 +33,14 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         self.lambda_lm = 0.0
         self.ignore_index = -100.0
         self.max_clipped_logits = 100.0
-        
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
         Compute combined loss from language modeling and probe classification.
         
         Args:
             model: HallucinationProbeModel
-            inputs: Dict containing input_ids, attention_mask, labels, token_labels
+            inputs: Dict containing input_ids, attention_mask, labels, probe_labels
             return_outputs: Whether to return model outputs
             num_items_in_batch: Number of items in batch (unused)
             
@@ -83,6 +48,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             Combined loss tensor, optionally with outputs
         """
 
+        # TODO: Remove this
         # print("-----------")
         # print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer.compute_loss:99")
         # for i, group in enumerate(self.optimizer.param_groups):
@@ -92,11 +58,15 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         # print("-----------")
 
         # Extract inputs
+        print(f"--------------------------------")
+        print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer.compute_loss:61")
+        print(f"inputs: {inputs.keys()}")
+        print(f"--------------------------------")
+
         input_ids: Int[Tensor, 'batch_size seq_len'] = inputs["input_ids"]
         attention_mask: Int[Tensor, 'batch_size seq_len'] = inputs["attention_mask"]
         lm_labels: Int[Tensor, 'batch_size seq_len'] = inputs["labels"]  # For language modeling loss
-        # token_labels: Float[Tensor, 'batch_size seq_len'] = inputs["token_labels"]  # For probe classification loss
-        token_labels: Float[Tensor, 'batch_size seq_len'] = get_token_labels(input_ids)
+        probe_labels: Float[Tensor, 'batch_size seq_len'] = inputs["probe_labels"]  # For probe classification loss
 
         # Forward pass
         outputs = model(
@@ -106,7 +76,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         )
 
         # TODO: Remove this
-        self._debug_model_weights(model)
+        # self._debug_model_weights(model)
 
         # Get outputs
         lm_logits: Float[Tensor, 'batch_size seq_len vocab_size'] = outputs["lm_logits"]
@@ -118,7 +88,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             lm_loss = torch.tensor(0.0, device=input_ids.device)
         
         # Compute probe loss
-        probe_loss = self._compute_probe_loss(probe_logits, token_labels, attention_mask)
+        probe_loss = self._compute_probe_loss(probe_logits, probe_labels, attention_mask)
         
         # Combine losses
         if self.lambda_lm > 0:
@@ -140,7 +110,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
     def _compute_probe_loss(
         self, 
         probe_logits: Float[Tensor, 'batch_size seq_len'], 
-        token_labels: Float[Tensor, 'batch_size seq_len'], 
+        probe_labels: Float[Tensor, 'batch_size seq_len'], 
         attention_mask: Int[Tensor, 'batch_size seq_len']
     ) -> Float[Tensor, '']:
         """
@@ -148,7 +118,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         
         Args:
             probe_logits: Raw logits from probe head
-            token_labels: Target labels (0.0, 1.0, -100.0)
+            probe_labels: Target labels (0.0, 1.0, -100.0)
             attention_mask: Attention mask
             
         Returns:
@@ -162,7 +132,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         )
         
         # Create mask for valid positions (not padding, not ignore_index)
-        valid_mask = (token_labels != self.ignore_index) & (attention_mask == 1)
+        valid_mask = (probe_labels != self.ignore_index) & (attention_mask == 1)
         
         if not valid_mask.any():
             # No valid positions, return zero loss
@@ -172,7 +142,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             # Compute BCE loss using the same pattern as probe_loss.py
             bce_loss = F.binary_cross_entropy_with_logits(
                 probe_logits_clipped,
-                token_labels,
+                probe_labels,
                 reduction='none'
             )
             
@@ -202,7 +172,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         
         Args:
             model: HallucinationProbeModel
-            inputs: Dict containing input_ids, attention_mask, labels, token_labels
+            inputs: Dict containing input_ids, attention_mask, labels, probe_labels
             prediction_loss_only: Whether to return only the loss
             ignore_keys: Keys to ignore in outputs
             
@@ -226,19 +196,19 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             
             # Return probe logits and token labels for evaluation
             probe_logits: Float[Tensor, 'batch_size seq_len 1'] = outputs["probe_logits"]
-            # token_labels: Float[Tensor, 'batch_size seq_len'] = inputs["token_labels"]
-            token_labels: Float[Tensor, 'batch_size seq_len'] = get_token_labels(inputs["input_ids"])
+            probe_labels: Float[Tensor, 'batch_size seq_len'] = inputs["probe_labels"]
             
-            return (loss, probe_logits, token_labels)
+            return (loss, probe_logits, probe_labels)
     
     def _wrap_model(self, model, training=True, dataloader=None):
         wrapped_model = super()._wrap_model(model, training=training, dataloader=dataloader)
-        print("------------")
-        print(f"HookedLoraProbeTrainer._wrap_model:272")
-        print(f"type(model): {type(model)}")
-        print(f"_wrap_model:276")
-        print(f"wrapped_model: {type(wrapped_model)}")
-        print("------------")
+        # TODO: Remove this
+        # print("------------")
+        # print(f"HookedLoraProbeTrainer._wrap_model:272")
+        # print(f"type(model): {type(model)}")
+        # print(f"_wrap_model:276")
+        # print(f"wrapped_model: {type(wrapped_model)}")
+        # print("------------")
         return wrapped_model
 
     def _debug_model_weights(self, model: Union[PreTrainedModel, PeftModelForCausalLM, HookedModel, DeepSpeedEngine]):

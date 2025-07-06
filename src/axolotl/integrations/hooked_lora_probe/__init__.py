@@ -46,14 +46,7 @@ class HookedLoraProbePlugin(BasePlugin):
         """Add probe head to the model after loading."""
         if cfg.hooked_lora_probe_enabled:
             from .model import add_probe_head
-            print("-----------")
-            print(f"src.axolotl.integrations.hooked_lora_probe.HookedLoraProbePlugin.pre_lora_load:54")
-            print(f"type(model): {type(model)}")
-            print(f"model: {repr(model)[:400]}")
             hooked_model = add_probe_head(model, cfg)
-            print(f"hooked_model: {type(hooked_model)}")
-            print(f"hooked_model: {repr(hooked_model)[:400]}")
-            print("-----------")
             return hooked_model
         return None
 
