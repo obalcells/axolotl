@@ -11,7 +11,7 @@ from typing import Optional
 from axolotl.integrations.base import BasePlugin
 from axolotl.utils.collators import DataCollatorForSeq2Seq
 
-from .model import HookedModel, add_probe_head
+from .model import HookedModel
 from .args import HookedLoraProbeArgs # pylint: disable=unused-import. # noqa: F401
 
 class HookedLoraProbePlugin(BasePlugin):
@@ -36,7 +36,9 @@ class HookedLoraProbePlugin(BasePlugin):
         return None
 
     def get_training_args(self, cfg):
-        return None
+        return {
+            "label_names": ["probe_labels", "labels"],
+        }
     
     def get_collator_cls_and_kwargs(self, cfg, is_eval=False):
         """Return custom data collator for probe training."""
