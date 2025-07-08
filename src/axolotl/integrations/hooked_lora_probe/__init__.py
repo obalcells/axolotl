@@ -9,7 +9,6 @@ a binary classification loss from a linear probe head attached to intermediate l
 from typing import Optional
 
 from axolotl.integrations.base import BasePlugin
-from axolotl.utils.collators import DataCollatorForSeq2Seq
 
 from .model import HookedModel
 from .args import HookedLoraProbeArgs # pylint: disable=unused-import. # noqa: F401
@@ -42,7 +41,8 @@ class HookedLoraProbePlugin(BasePlugin):
     
     def get_collator_cls_and_kwargs(self, cfg, is_eval=False):
         """Return custom data collator for probe training."""
-        return DataCollatorForSeq2Seq, {}
+        from .collator import DataCollatorForProbe
+        return DataCollatorForProbe, {}
     
     def pre_lora_load(self, cfg, model) -> Optional[HookedModel]:
         """Add probe head to the model after loading."""
@@ -51,6 +51,10 @@ class HookedLoraProbePlugin(BasePlugin):
             hooked_model = add_probe_head(model, cfg)
             return hooked_model
         return None
+
+    def post_lora_load(self, cfg, model):
+        if cfg.hooked_lora_probe_enabled:
+            model.probe_head.requires_grad_(True)
 
     def add_callbacks_post_trainer(self, cfg, trainer):
         """Add probe-specific callbacks."""

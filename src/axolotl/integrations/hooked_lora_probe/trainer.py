@@ -14,7 +14,7 @@ from deepspeed import DeepSpeedEngine
 
 from axolotl.core.trainers.base import AxolotlTrainer
 
-from .model import HookedModel, add_probe_head
+from .model import HookedModel
 
 
 class HookedLoraProbeTrainer(AxolotlTrainer):
@@ -47,21 +47,15 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         Returns:
             Combined loss tensor, optionally with outputs
         """
-
-        # TODO: Remove this
-        # print("-----------")
-        # print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer.compute_loss:99")
-        # for i, group in enumerate(self.optimizer.param_groups):
-        #     print(f"Parameter group {i}:")
-        #     for j, param in enumerate(group['params']):
-        #         print(f"  Parameter {j}: shape {param.shape}, requires_grad={param.requires_grad}")
-        # print("-----------")
-
         # Extract inputs
-        print(f"--------------------------------")
-        print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer.compute_loss:61")
-        print(f"inputs: {inputs.keys()}")
-        print(f"--------------------------------")
+        # print(f"--------------------------------")
+        # print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer.compute_loss:61")
+        # print(f"inputs: {inputs.keys()}")
+        # print(f"input_ids[0]: {inputs['input_ids'][0][:5]} ... {inputs['input_ids'][0][100:110]} ... {inputs['input_ids'][0][-5:]}")
+        # print(f"labels[0]: {inputs['labels'][0][:5]} ... {inputs['labels'][0][100:110]} ... {inputs['labels'][0][-5:]}")
+        # print(f"probe_labels[0]: {inputs['probe_labels'][0][:5]} ... {inputs['probe_labels'][0][100:110]} ... {inputs['probe_labels'][0][-5:]}")
+        # print(f"attention_mask[0]: {inputs['attention_mask'][0][:5]} ... {inputs['attention_mask'][0][100:110]} ... {inputs['attention_mask'][0][-5:]}")
+        # print(f"--------------------------------")
 
         input_ids: Int[Tensor, 'batch_size seq_len'] = inputs["input_ids"]
         attention_mask: Int[Tensor, 'batch_size seq_len'] = inputs["attention_mask"]
@@ -74,9 +68,6 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             attention_mask=attention_mask,
             labels=lm_labels,
         )
-
-        # TODO: Remove this
-        # self._debug_model_weights(model)
 
         # Get outputs
         lm_logits: Float[Tensor, 'batch_size seq_len vocab_size'] = outputs["lm_logits"]
@@ -200,17 +191,6 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             
             return (loss, probe_logits, probe_labels)
     
-    def _wrap_model(self, model, training=True, dataloader=None):
-        wrapped_model = super()._wrap_model(model, training=training, dataloader=dataloader)
-        # TODO: Remove this
-        # print("------------")
-        # print(f"HookedLoraProbeTrainer._wrap_model:272")
-        # print(f"type(model): {type(model)}")
-        # print(f"_wrap_model:276")
-        # print(f"wrapped_model: {type(wrapped_model)}")
-        # print("------------")
-        return wrapped_model
-
     def _debug_model_weights(self, model: Union[PreTrainedModel, PeftModelForCausalLM, HookedModel, DeepSpeedEngine]):
         print(f"--------------------------------")
         print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer._debug_model_weights:253")
