@@ -165,24 +165,7 @@ class ModelLoader:
         self._apply_post_model_load_setup()
 
         # Load adapters (LoRA, etc.)
-        # TODO: Uncomment below line
-        # PLUGIN_MANAGER.pre_lora_load(self.cfg, self.model)
-
-        post_model_load_reassigned: Optional[PreTrainedModel] = PLUGIN_MANAGER.pre_lora_load(self.cfg, self.model)
-        if post_model_load_reassigned is not None:
-            # TODO: remove this
-            print("-----------")
-            print(f"src.axolotl.loaders.model.ModelLoader.load:174")
-            print(f"Reassigning self.model from {type(self.model)} to {type(post_model_load_reassigned)} returned by PLUGIN_MANAGER.pre_lora_load")
-            print("-----------")
-            self.model = post_model_load_reassigned
-        else:
-            # TODO: remove this
-            print("-----------")
-            print(f"src.axolotl.loaders.model.ModelLoader.load:181")
-            print(f"No reassigning self.model to value returned by PLUGIN_MANAGER.pre_lora_load")
-            print("-----------")
-
+        PLUGIN_MANAGER.pre_lora_load(self.cfg, self.model)
         lora_config = self._load_adapters()
         PLUGIN_MANAGER.post_lora_load(self.cfg, self.model)
 
@@ -190,16 +173,7 @@ class ModelLoader:
         self._apply_post_lora_load_setup(skip_move_to_device)
         self.patch_manager.apply_post_model_load_patches(self.model)
 
-        # TODO: Uncomment below line
-        # PLUGIN_MANAGER.post_model_load()
-        post_model_load: Optional[PreTrainedModel | PeftModel | PeftMixedModel] = PLUGIN_MANAGER.post_model_load(self.cfg, self.model)
-        if post_model_load is not None:
-            # TODO: remove this
-            print("-----------")
-            print(f"src.axolotl.loaders.model.ModelLoader.load:197")
-            print(f"Reassigning self.model from {type(self.model)} to {type(post_model_load)} returned by PLUGIN_MANAGER.post_model_load")
-            print("-----------")
-            self.model = post_model_load
+        PLUGIN_MANAGER.post_model_load(self.cfg, self.model)
 
         return self.model, lora_config
 

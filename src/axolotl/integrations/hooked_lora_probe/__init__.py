@@ -52,12 +52,11 @@ class HookedLoraProbePlugin(BasePlugin):
         from .collator import DataCollatorForProbe
         return DataCollatorForProbe, {}
     
-    def pre_lora_load(self, cfg, model) -> Optional[HookedModel]:
+    def pre_lora_load(self, cfg, model):
         """Add probe head to the model after loading."""
         if cfg.hooked_lora_probe_enabled:
-            from .model import add_probe_head
-            hooked_model = add_probe_head(model, cfg)
-            return hooked_model
+            from .monkey_patch_model import add_probe_head_transform
+            add_probe_head_transform(model, cfg)
         return None
 
     def post_lora_load(self, cfg, model):

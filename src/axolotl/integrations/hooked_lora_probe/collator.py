@@ -30,11 +30,10 @@ class DataCollatorForProbe(DataCollatorForSeq2Seq):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.tokenizer.deprecation_warnings["Asking-to-pad-a-fast-tokenizer"] = True
         assert self.tokenizer.padding_side == "right"
 
     def __call__(self, features: List[Dict[str, Any]], return_tensors=None) -> Dict[str, torch.Tensor]:
-        assert self.tokenizer.padding_side == "right"
-
         if return_tensors is None:
             return_tensors = self.return_tensors
 

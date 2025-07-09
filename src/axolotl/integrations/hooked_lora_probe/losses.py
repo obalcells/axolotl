@@ -10,69 +10,53 @@ from typing import Optional
 
 
 def compute_vanilla_probe_loss(
-    probe_logits: Float[Tensor, 'batch_size seq_len'], 
-    probe_labels: Float[Tensor, 'batch_size seq_len'], 
+    probe_logits: Float[Tensor, 'batch_size seq_len'],
+    probe_labels: Float[Tensor, 'batch_size seq_len'],
     attention_mask: Int[Tensor, 'batch_size seq_len'],
     span_ids: Optional[Int[Tensor, 'batch_size seq_len']] = None,
     span_weighting: float = 1.0,
-    max_clipped_logits: float = 100.0,
-) -> Float[Tensor, '']:
+    ignore_label: float = -100.0,
+) -> torch.Tensor:
     """
-    Compute binary cross-entropy loss for probe classification.
+    Compute vanilla (token-level) probe loss.
     
     Args:
-        probe_logits: Raw logits from probe head
-        probe_labels: Target labels (0.0, 1.0, -100.0)
-        attention_mask: Attention mask
+        probe_logits: Probe predictions [batch_size, seq_len]
+        probe_labels: Token-level labels [batch_size, seq_len]
+        attention_mask: Attention mask [batch_size, seq_len]
+        span_ids: Span IDs for each token [batch_size, seq_len] (optional)
+        span_weighting: Weighting scheme (optional)
+        ignore_label: Label value to ignore
         
     Returns:
-        Probe classification loss
+        Binary cross-entropy loss
     """
-    # Clip logits to prevent extreme values
-    probe_logits_clipped = torch.clamp(
-        probe_logits,
-        min=-max_clipped_logits,
-        max=max_clipped_logits
-    )
+    # Create mask for valid tokens (attended and not ignored)
+    mask = (attention_mask == 1) & (probe_labels != ignore_label)
     
-    # Create mask for valid positions (not padding, not ignore_index)
-    valid_mask = (probe_labels != -100.0) & (attention_mask == 1)
+    if mask.sum() == 0:
+        return torch.tensor(0.0, device=probe_logits.device, dtype=probe_logits.dtype)
 
-    # Apply span weighting
+    weight = torch.ones_like(probe_labels)
+
     if span_weighting != 1.0:
-        assert span_ids is not None, "span_ids must be provided if span_weighting != 1.0"
-        span_mask = (span_ids != -100.0) & (attention_mask == 1) & (probe_labels != -100.0)
-        weight = torch.ones_like(probe_labels)
-        weight[span_mask] = span_weighting
-    else:
-        weight = torch.ones_like(probe_labels)
-
-    if not valid_mask.any():
-        # No valid positions, return zero loss
-        return torch.tensor(0.0, device=probe_logits.device, requires_grad=True)
+        annotated_span_mask = mask & (span_ids != -100)
+        weight[annotated_span_mask] = span_weighting
     
-    try:
-        # Compute BCE loss using the same pattern as probe_loss.py
-        bce_loss = F.binary_cross_entropy_with_logits(
-            probe_logits_clipped,
-            probe_labels,
-            weight=weight,
-            reduction='none'
-        )
-        
-        # Apply mask and compute mean
-        bce_loss = bce_loss[valid_mask].mean()
-        
-        # Check for NaN
-        if torch.isnan(bce_loss):
-            print(f"WARNING: NaN detected in probe BCE loss")
-            bce_loss = torch.tensor(0.0, device=probe_logits.device)
-        
-        return bce_loss
-        
-    except Exception as e:
-        print(f"Error in probe BCE loss calculation: {e}\nFallback to setting loss to 0.0")
-        return torch.tensor(0.0, device=probe_logits.device)
+    # Get valid logits and labels
+    valid_logits = probe_logits[mask]
+    valid_labels = probe_labels[mask]
+    weight = weight[mask]
+    
+    # Compute binary cross-entropy loss
+    loss = F.binary_cross_entropy_with_logits(valid_logits, valid_labels, weight=weight, reduction='mean')
+    
+    # Check for NaN
+    if torch.isnan(loss):
+        print(f"WARNING: NaN detected in vanilla probe loss. Returning 0.0")
+        loss = torch.tensor(0.0, device=probe_logits.device, dtype=probe_logits.dtype)
+    
+    return loss
 
 
 def compute_max_span_aggregation_loss(

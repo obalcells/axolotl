@@ -38,11 +38,11 @@ class LinearHead(nn.Module):
 class HookedModel(nn.Module):
     """Wrapper that hooks a linear head to a language model and delegates all calls to the underlying model."""
     
-    def __init__(self, model: PreTrainedModel, probe_layer_idx: int, hidden_size: int):
+    def __init__(self, model: PreTrainedModel, probe_head_layer: int, hidden_size: int):
         super().__init__()
 
-        self._model = model
-        self.probe_layer_idx = probe_layer_idx
+        self.model = model
+        self.probe_head_layer = probe_head_layer
         self._hooked_activations = None
         self._probe_hook_handle = None
 
@@ -67,10 +67,10 @@ class HookedModel(nn.Module):
         """Get the target layer for hooking."""
         if hasattr(module, 'layers'):
             # LLaMA-style models
-            return module.layers[self.probe_layer_idx]
+            return module.layers[self.probe_head_layer]
         elif hasattr(module, 'transformer') and hasattr(module.transformer, 'h'):
             # GPT-style models
-            return module.transformer.h[self.probe_layer_idx]
+            return module.transformer.h[self.probe_head_layer]
         elif hasattr(module, 'base_model'):
             # PeftModel or a model with adapters
             return self._get_target_layer(module.base_model)
@@ -126,7 +126,7 @@ class HookedModel(nn.Module):
     def __setattr__(self, name, value):
         """Delegate attribute setting to the underlying model when appropriate."""
         # Always set our core attributes on self first
-        our_attributes = {'_model', 'probe_head', 'probe_layer_idx', '_hooked_activations', '_probe_hook_handle'}
+        our_attributes = {'_model', 'probe_head', 'probe_head_layer', '_hooked_activations', '_probe_hook_handle'}
         
         if name in our_attributes:
             # Always set our own core attributes on self
@@ -146,7 +146,9 @@ class HookedModel(nn.Module):
         """Delegate ALL attribute access to the underlying model."""
         # This method is only called when the attribute is not found on self
         # By this point, self.model should always be set (after __init__)
-        our_attributes = {'_model', 'probe_head', 'probe_layer_idx', '_hooked_activations', '_probe_hook_handle'}
+        our_attributes = {'_model', 'probe_head', 'probe_head_layer', '_hooked_activations', '_probe_hook_handle'}
+
+        print(f"HookedModel.__getattr__: {name}")
 
         if name in our_attributes:
             return super().__getattr__(name)
@@ -162,11 +164,11 @@ class HookedModel(nn.Module):
     
     def __repr__(self):
         """Provide a helpful representation."""
-        return f"HookedModel(\n  model={repr(self._model)},\n  probe_layer_idx={self.probe_layer_idx}\n)"
+        return f"HookedModel(\n  model={repr(self._model)},\n  probe_head_layer={self.probe_head_layer}\n)"
     
     def __str__(self):
         """Provide a helpful string representation."""
-        return f"HookedModel wrapping {type(self._model).__name__} with probe at layer {self.probe_layer_idx}"
+        return f"HookedModel wrapping {type(self._model).__name__} with probe at layer {self.probe_head_layer}"
     
     @property
     def device(self):
@@ -208,7 +210,9 @@ class HookedModel(nn.Module):
         probe_prefix = f"{prefix}probe_head." if prefix else "probe_head."
         
         # Return model parameters without additional prefix
+        print(f"HookedModel.named_parameters: prefix={prefix}")
         for name, param in self._model.named_parameters(prefix=prefix, recurse=recurse):
+            # print(f"HookedModel.named_parameters: yielding {repr(name)}")
             yield name, param
         # Return probe head parameters with probe_head prefix
         for name, param in self.probe_head.named_parameters(prefix=probe_prefix[:-1], recurse=recurse):
@@ -218,7 +222,10 @@ class HookedModel(nn.Module):
         """Return state dict including both model and probe head."""
         if destination is None:
             destination = {}
-        
+
+        # print(f"HookedModel.state_dict: prefix={prefix}")
+        # print(f"HookedModel.state_dict: keep_vars={keep_vars}")
+
         # Get model state dict without additional prefix
         model_state = self._model.state_dict(prefix=prefix, keep_vars=keep_vars)
         destination.update(model_state)
@@ -226,14 +233,20 @@ class HookedModel(nn.Module):
         # Get probe head state dict with probe_head prefix
         probe_state = self.probe_head.state_dict(prefix=f"{prefix}probe_head.", keep_vars=keep_vars)
         destination.update(probe_state)
+
+        # print(f"destination.keys(): {destination.keys()}")
         
         return destination
     
-    def load_state_dict(self, state_dict, strict=True):
+    def load_state_dict(self, state_dict, strict=True, assign=False):
         """Load state dict for both model and probe head."""
         # Separate model and probe head state dicts
         model_state = {}
         probe_state = {}
+
+        print(f"--------------------------------")
+        print(f"HookedModel.load_state_dict: state_dict.keys(): {repr(state_dict.keys())[:1_000]}")
+        print(f"--------------------------------")
         
         for key, value in state_dict.items():
             if key.startswith('probe_head.'):
@@ -247,7 +260,7 @@ class HookedModel(nn.Module):
             self._model.load_state_dict(model_state, strict=strict)
         if probe_state:
             self.probe_head.load_state_dict(probe_state, strict=strict)
-    
+
     def __del__(self):
         """Clean up hook on destruction."""
         if hasattr(self, '_probe_hook_handle') and self._probe_hook_handle is not None:
@@ -269,14 +282,14 @@ def add_probe_head(model: PreTrainedModel, cfg: dict) -> HookedModel:
         HallucinationProbeModel with probe head attached
     """
     # Determine probe layer
-    probe_layer_idx = cfg.get("probe_layer_idx")
-    if probe_layer_idx is None:
+    probe_head_layer = cfg.get("probe_head_layer", None)
+    if probe_head_layer is None:
         # Default to last layer - 1 (since we want intermediate representations)
         if hasattr(model, 'config'):
             if hasattr(model.config, 'num_hidden_layers'):
-                probe_layer_idx = model.config.num_hidden_layers - 1
+                probe_head_layer = model.config.num_hidden_layers - 1
             elif hasattr(model.config, 'n_layer'):
-                probe_layer_idx = model.config.n_layer - 1
+                probe_head_layer = model.config.n_layer - 1
             else:
                 raise ValueError("Cannot determine number of layers in model")
         else:
@@ -293,7 +306,7 @@ def add_probe_head(model: PreTrainedModel, cfg: dict) -> HookedModel:
     # Create probe model
     probe_model = HookedModel(
         model=model,
-        probe_layer_idx=probe_layer_idx,
+        probe_head_layer=probe_head_layer,
         hidden_size=hidden_size
     )
 

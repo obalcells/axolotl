@@ -557,13 +557,6 @@ def train(
         processor,
     ) = setup_model_and_trainer(cfg, dataset_meta)
 
-    print("-----------")
-    print(f"src.axolotl.train.train:561")
-    print(f"type(model): {type(model)}")
-    print(f"type(trainer): {type(trainer)}")
-    print(f"type(trainer.model): {type(trainer.model)}")
-    print(f"----------")
-
     plugin_manager = PluginManager.get_instance()
     plugin_manager.post_trainer_create(cfg, trainer)
 

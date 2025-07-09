@@ -5,6 +5,7 @@ Custom trainer for hallucination probe training
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import os
 from jaxtyping import Float, Int
 from torch import Tensor
 from typing import Dict, Optional, Any, Tuple, Union
@@ -28,7 +29,6 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
     """
     
     def __init__(self, *args, **kwargs):
-        print(f"kwargs: {kwargs.keys()}")
         super().__init__(*args, **kwargs)
         
         # Extract probe-specific configuration
@@ -89,9 +89,6 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
                 probe_logits,
                 probe_labels,
                 span_ids,
-                max_clipped_logits=100.0,
-                ignore_label=-100.0,
-                sparsity_penalty_weight=0.0,
             )
             probe_loss = vanilla_probe_loss * (1 - omega) + max_aggr_loss * omega
         else:
@@ -155,18 +152,65 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             
             return (loss, probe_logits, probe_labels)
     
+    def _get_probe_head_from_model(self, model: Union[PreTrainedModel, PeftModelForCausalLM, HookedModel, DeepSpeedEngine]):
+        """Extract probe head from model, handling different model types."""
+        if isinstance(model, DeepSpeedEngine):
+            # DeepSpeed wraps the model
+            base_model = model.module
+        else:
+            base_model = model
+            
+        # Handle PeftModel wrapping
+        if hasattr(base_model, 'base_model'):
+            # PeftModel structure: model.base_model.model.probe_head
+            return base_model.base_model.model.probe_head
+        else:
+            # Direct model structure: model.probe_head
+            return base_model.probe_head
+    
+    def _save_probe_head(self, output_dir: str, model: Union[PreTrainedModel, PeftModelForCausalLM, HookedModel, DeepSpeedEngine]):
+        """Save probe head weights to output directory."""
+        try:
+            probe_head = self._get_probe_head_from_model(model)
+            probe_head_path = os.path.join(output_dir, "probe_head.bin")
+            
+            # Save probe head state dict
+            torch.save(probe_head.state_dict(), probe_head_path)
+            print(f"Saved probe head weights to {probe_head_path}")
+            
+        except Exception as e:
+            print(f"Failed to save probe head weights: {e}")
+    
+    def _save_checkpoint(self, model, trial, **kwargs):
+        """Override to save probe head with each checkpoint."""
+        # Call parent method to save standard checkpoint
+        checkpoint_folder = super()._save_checkpoint(model, trial, **kwargs)
+        
+        # Save probe head weights
+        if checkpoint_folder:
+            self._save_probe_head(checkpoint_folder, model)
+            
+        return checkpoint_folder
+    
+    def _save(self, output_dir: Optional[str] = None, state_dict=None):
+        """Override to save probe head with final model."""
+        # Call parent method to save standard model
+        super()._save(output_dir, state_dict)
+        
+        # Save probe head weights
+        if output_dir:
+            self._save_probe_head(output_dir, self.model)
+    
     def _debug_model_weights(self, model: Union[PreTrainedModel, PeftModelForCausalLM, HookedModel, DeepSpeedEngine]):
         print(f"--------------------------------")
         print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer._debug_model_weights:253")
         print(f"type(model): {type(model)}")
         print(f"model: {repr(model)[:300]}")
-
         if not isinstance(model, DeepSpeedEngine):
-            print(f"linear_head weights: {model.probe_head.linear.weight}")
-            print(f"model.model.layers.13.mlp.down_proj.lora_B.default.weight: {model._model.model.layers[13].mlp.down_proj.lora_B.default.weight}")
+            print(f"linear_head weights: {model.base_model.model.probe_head.linear.weight}")
+            print(f"model.model.layers.13.mlp.down_proj.lora_B.default.weight: {model.base_model.model.model.layers[13].mlp.down_proj.lora_B.default.weight}")
         else:
             print(f"(DeepSpeedEngine detected)")
-            print(f"linear_head weights: {model.module.probe_head.linear.weight}")
-            print(f"model.model.layers.13.mlp.down_proj.lora_B.default.weight: {model.module._model.model.layers[13].mlp.down_proj.lora_B.default.weight}")
-
+            print(f"linear_head weights: {model.module.base_model.model.probe_head.linear.weight}")
+            print(f"model.model.layers.13.mlp.down_proj.lora_B.default.weight: {model.module.base_model.model.model.layers[13].mlp.down_proj.lora_B.default.weight}")
         print(f"--------------------------------")
