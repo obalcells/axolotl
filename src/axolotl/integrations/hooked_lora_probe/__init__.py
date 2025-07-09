@@ -11,7 +11,7 @@ from typing import Optional
 from axolotl.integrations.base import BasePlugin
 
 from .model import HookedModel
-from .args import HookedLoraProbeArgs # pylint: disable=unused-import. # noqa: F401
+from .args import ProbeArgs, ProbeTrainingArgsMixin # pylint: disable=unused-import. # noqa: F401
 
 class HookedLoraProbePlugin(BasePlugin):
     """
@@ -25,7 +25,10 @@ class HookedLoraProbePlugin(BasePlugin):
     """
     
     def get_input_args(self):
-        return "axolotl.integrations.hooked_lora_probe.HookedLoraProbeArgs"
+        return "axolotl.integrations.hooked_lora_probe.ProbeArgs"
+
+    def get_training_args_mixin(self):
+        return "axolotl.integrations.hooked_lora_probe.ProbeTrainingArgsMixin"
     
     def get_trainer_cls(self, cfg):
         """Return custom trainer class for hallucination probe training."""
@@ -36,7 +39,12 @@ class HookedLoraProbePlugin(BasePlugin):
 
     def get_training_args(self, cfg):
         return {
-            "label_names": ["probe_labels", "labels"],
+            "probe_head_layer": cfg.probe_head_layer,
+            "lambda_lm": cfg.lambda_lm,
+            "anneal_max_aggr": cfg.anneal_max_aggr,
+            "anneal_warmup": cfg.anneal_warmup,
+            "span_weighting": cfg.span_weighting,
+            "label_names": ["probe_labels", "labels", "span_ids"],
         }
     
     def get_collator_cls_and_kwargs(self, cfg, is_eval=False):

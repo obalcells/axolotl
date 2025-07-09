@@ -1,0 +1,211 @@
+"""
+Loss functions for hallucination probe training with span-based aggregation.
+"""
+
+import torch
+import torch.nn.functional as F
+from jaxtyping import Float, Int
+from torch import Tensor
+from typing import Optional
+
+
+def compute_vanilla_probe_loss(
+    probe_logits: Float[Tensor, 'batch_size seq_len'], 
+    probe_labels: Float[Tensor, 'batch_size seq_len'], 
+    attention_mask: Int[Tensor, 'batch_size seq_len'],
+    span_ids: Optional[Int[Tensor, 'batch_size seq_len']] = None,
+    span_weighting: float = 1.0,
+    max_clipped_logits: float = 100.0,
+) -> Float[Tensor, '']:
+    """
+    Compute binary cross-entropy loss for probe classification.
+    
+    Args:
+        probe_logits: Raw logits from probe head
+        probe_labels: Target labels (0.0, 1.0, -100.0)
+        attention_mask: Attention mask
+        
+    Returns:
+        Probe classification loss
+    """
+    # Clip logits to prevent extreme values
+    probe_logits_clipped = torch.clamp(
+        probe_logits,
+        min=-max_clipped_logits,
+        max=max_clipped_logits
+    )
+    
+    # Create mask for valid positions (not padding, not ignore_index)
+    valid_mask = (probe_labels != -100.0) & (attention_mask == 1)
+
+    # Apply span weighting
+    if span_weighting != 1.0:
+        assert span_ids is not None, "span_ids must be provided if span_weighting != 1.0"
+        span_mask = (span_ids != -100.0) & (attention_mask == 1) & (probe_labels != -100.0)
+        weight = torch.ones_like(probe_labels)
+        weight[span_mask] = span_weighting
+    else:
+        weight = torch.ones_like(probe_labels)
+
+    if not valid_mask.any():
+        # No valid positions, return zero loss
+        return torch.tensor(0.0, device=probe_logits.device, requires_grad=True)
+    
+    try:
+        # Compute BCE loss using the same pattern as probe_loss.py
+        bce_loss = F.binary_cross_entropy_with_logits(
+            probe_logits_clipped,
+            probe_labels,
+            weight=weight,
+            reduction='none'
+        )
+        
+        # Apply mask and compute mean
+        bce_loss = bce_loss[valid_mask].mean()
+        
+        # Check for NaN
+        if torch.isnan(bce_loss):
+            print(f"WARNING: NaN detected in probe BCE loss")
+            bce_loss = torch.tensor(0.0, device=probe_logits.device)
+        
+        return bce_loss
+        
+    except Exception as e:
+        print(f"Error in probe BCE loss calculation: {e}\nFallback to setting loss to 0.0")
+        return torch.tensor(0.0, device=probe_logits.device)
+
+
+def compute_max_span_aggregation_loss(
+    probe_logits: Float[Tensor, 'batch_size seq_len'],
+    probe_labels: Float[Tensor, 'batch_size seq_len'],
+    span_ids: Int[Tensor, 'batch_size seq_len'],
+    max_clipped_logits: float = 100.0,
+    sparsity_penalty_weight: Optional[float] = None,
+) -> torch.Tensor:
+    """
+    Compute span-level max-aggregation loss using span_ids.
+    
+    For each span:
+    - Take the maximum logit within the span
+    - Compute BCE loss with the span's label (1.0 for hallucination, 0.0 for supported)
+    
+    Args:
+        probe_logits: Probe predictions [batch_size, seq_len]
+        probe_labels: Token-level labels [batch_size, seq_len]
+        span_ids: Span IDs for each token [batch_size, seq_len]
+                 -100 means ignore, 0+ means span ID
+        max_clipped_logits: Maximum absolute value for logits
+        sparsity_penalty_weight: Weight for sparsity penalty (optional)
+        
+    Returns:
+        Aggregated loss tensor
+    """
+    device = probe_logits.device
+    dtype = probe_logits.dtype
+    
+    # Clip logits to prevent extreme values
+    probe_logits_clipped = torch.clamp(
+        probe_logits,
+        min=-max_clipped_logits,
+        max=max_clipped_logits
+    )
+    
+    span_losses = []
+    
+    batch_size, seq_len = probe_logits.shape[:2]
+    
+    for batch_idx in range(batch_size):
+        batch_span_ids = span_ids[batch_idx]
+        batch_labels = probe_labels[batch_idx]
+        batch_logits = probe_logits_clipped[batch_idx]
+        
+        # Get unique span IDs (excluding ignore label)
+        unique_span_ids = torch.unique(batch_span_ids)
+        unique_span_ids = unique_span_ids[unique_span_ids != -100]
+        
+        for span_id in unique_span_ids:
+            # Get positions for this span
+            span_mask = (batch_span_ids == span_id)
+            span_positions = torch.where(span_mask)[0]
+            
+            if len(span_positions) == 0:
+                continue
+                
+            # Get labels for this span - they should all be the same
+            span_labels = batch_labels[span_positions]
+            
+            # Skip if any token in span is ignored
+            if (span_labels == -100.0).any():
+                continue
+                
+            # Check that all labels in span are the same
+            unique_labels = torch.unique(span_labels)
+            if len(unique_labels) != 1:
+                continue
+                
+            span_label = unique_labels[0].item()
+            
+            # Skip if span label is ignore
+            if span_label == -100.0:
+                continue
+                
+            # Get logits for this span and take maximum
+            span_logits = batch_logits[span_positions]
+            max_logit = torch.max(span_logits)
+            
+            # Compute BCE loss
+            target = torch.tensor(span_label, device=device, dtype=dtype)
+            loss = F.binary_cross_entropy_with_logits(max_logit, target, reduction='none')
+            span_losses.append(loss)
+    
+    if not span_losses:
+        # No valid spans found in the batch
+        return torch.tensor(0.0, device=device, dtype=dtype)
+    
+    # Compute mean loss over all spans
+    final_loss = torch.mean(torch.stack(span_losses))
+    
+    # Add sparsity penalty if specified
+    if sparsity_penalty_weight is not None:
+        sparsity_loss = compute_sparsity_loss(
+            probe_logits=probe_logits,
+            probe_labels=probe_labels,
+        )
+        final_loss = final_loss + sparsity_penalty_weight * sparsity_loss
+    
+    # Check for NaN
+    if torch.isnan(final_loss):
+        print(f"WARNING: NaN detected in span aggregation loss. Returning 0.0")
+        final_loss = torch.tensor(0.0, device=device, dtype=dtype)
+    
+    return final_loss
+
+
+def compute_sparsity_loss(
+    probe_logits: Float[Tensor, 'batch_size seq_len'],
+    probe_labels: Float[Tensor, 'batch_size seq_len'],
+) -> torch.Tensor:
+    """
+    Penalize probe firing on tokens that are not hallucinations.
+    
+    Args:
+        probe_logits: Probe predictions [batch_size, seq_len]
+        probe_labels: Token-level labels [batch_size, seq_len]
+        
+    Returns:
+        Sparsity penalty loss
+    """
+    # Find positions that are supported (label 0.0)
+    mask = (probe_labels == 0.0)
+    
+    if mask.sum() == 0:
+        return torch.tensor(0.0, device=probe_logits.device)
+    
+    # Apply sigmoid to get probabilities
+    probe_probs = torch.sigmoid(probe_logits)
+    
+    # Penalize positive predictions on supported positions
+    sparsity_probs = probe_probs[mask]
+    sparsity_loss = torch.mean(sparsity_probs ** 2)
+    
+    return sparsity_loss

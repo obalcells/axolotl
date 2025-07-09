@@ -2,36 +2,31 @@
 Configuration arguments for Hallucination Probe Plugin
 """
 
-from typing import Optional, List, Union
-from pydantic import BaseModel, field_validator
+from typing import Optional
+from dataclasses import dataclass
+from pydantic import BaseModel
+
+class ProbeArgs(BaseModel):
+    """Configuration arguments for Hallucination Probe Plugin."""
+
+    hooked_lora_probe_enabled: bool = False
+    probe_head_layer: int = -1  # Which layer to attach probe to (default: last layer)
+    lambda_lm: float = 0.0  # Weight for language modeling loss (0.0 = only probe loss)
+    anneal_max_aggr: bool = True  # Whether to anneal max_aggr loss
+    anneal_warmup: float = 1.0  # Warmup for annealing max_aggr loss
+    probe_threshold: float = 0.5  # Classification threshold for evaluation
+    span_weighting: float = 10.0  # Weight for the tokens within annotated spans
 
 
-class HookedLoraProbeArgs(BaseModel):
+@dataclass
+class ProbeTrainingArgsMixin:
     """Configuration arguments for hallucination probe training."""
     
-    # Enable/disable probe training
-    hooked_lora_probe_enabled: Optional[bool] = False
-    
     # Probe configuration
-    probe_layer_idx: Optional[int] = None  # Which layer to attach probe to (default: last layer)
-    probe_threshold: float = 0.5  # Classification threshold for evaluation
-    
+    probe_head_layer: int = -1  # Which layer to attach probe to (default: last layer)
+
     # Loss configuration
     lambda_lm: float = 0.0  # Weight for language modeling loss (0.0 = only probe loss)
-    
-    # # Dataset configuration - expects 'token_labels' field with values {0.0, 1.0, -100.0}
-    # token_labels_field: str = "token_labels"
-    
-    @field_validator("probe_threshold")
-    @classmethod
-    def validate_threshold(cls, v):
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("probe_threshold must be between 0.0 and 1.0")
-        return v
-    
-    @field_validator("lambda_lm")
-    @classmethod
-    def validate_lambda_lm(cls, v):
-        if not 0.0 <= v <= 1.0:
-            raise ValueError("lambda_lm must be between 0.0 and 1.0")
-        return v
+    anneal_max_aggr: bool = True  # Whether to anneal max_aggr loss
+    anneal_warmup: float = 1.0  # Warmup for annealing max_aggr loss
+    span_weighting: float = 10.0  # Weight for the tokens within annotated spans

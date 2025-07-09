@@ -10,41 +10,6 @@ from typing import Dict, Optional, Any
 from transformers import TrainerCallback, TrainerState, TrainerControl
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
 
-def get_token_labels(input_ids: Int[Tensor, 'batch_size seq_len']) -> Float[Tensor, 'batch_size seq_len']:
-    """
-    Generate token labels for hallucination detection.
-    
-    Labels are 1 for frequent tokens that are likely to be hallucinated,
-    0 for all other tokens.
-    
-    Args:
-        input_ids: [batch_size, seq_len] token IDs
-        
-    Returns:
-        token_labels: [batch_size, seq_len] binary labels
-    """
-    # Define frequent tokens that are likely to be hallucinated
-    frequent_token_ids = {
-        1820,  # 'the'
-        438,   # 'and' 
-        285,   # 'is'
-        258,   # 'in'
-        998,   # 'to'
-        1073,  # 'of'
-        64,    # 'a'
-        9210,  # 'that'
-        275,   # 'it'
-        4291,  # 'with'
-    }
-    
-    # Create labels tensor with same shape as input_ids
-    token_labels = torch.zeros_like(input_ids, dtype=torch.float)
-    
-    # Set labels to 1 for frequent tokens
-    for token_id in frequent_token_ids:
-        token_labels[input_ids == token_id] = 1.0
-    
-    return token_labels.float()
 
 
 class HookedLoraProbeEvaluationCallback(TrainerCallback):
@@ -104,8 +69,7 @@ class HookedLoraProbeEvaluationCallback(TrainerCallback):
                 probe_logits = probe_logits.squeeze(-1)  # [batch_size, seq_len]
                 
                 # Get labels
-                # token_labels: Float[Tensor, 'batch_size seq_len'] = batch["token_labels"]
-                token_labels: Float[Tensor, 'batch_size seq_len'] = get_token_labels(batch["input_ids"])
+                token_labels: Float[Tensor, 'batch_size seq_len'] = batch["probe_labels"]
                 attention_mask: Int[Tensor, 'batch_size seq_len'] = batch["attention_mask"]
                 
                 # Create mask for valid positions
@@ -140,10 +104,10 @@ class HookedLoraProbeEvaluationCallback(TrainerCallback):
                 print(f"Probe {key}: {value:.4f}")
                 
             # Add to trainer's log history
-            if state.log_history:
-                state.log_history[-1].update(metrics)
-            else:
-                state.log_history.append(metrics)
+            # if state.log_history:
+            #     state.log_history[-1].update(metrics)
+            # else:
+            #     state.log_history.append(metrics)
     
     def _compute_metrics(self, predictions: np.ndarray, labels: np.ndarray, 
                         probs: np.ndarray) -> Dict[str, float]:
@@ -161,20 +125,20 @@ class HookedLoraProbeEvaluationCallback(TrainerCallback):
         metrics = {}
         
         # Basic accuracy
-        metrics["probe_accuracy"] = accuracy_score(labels, predictions)
+        metrics["probe_accuracy"] = float(accuracy_score(labels, predictions))
         
         # Precision, recall, F1
         precision, recall, f1, _ = precision_recall_fscore_support(
             labels, predictions, average='binary', zero_division=0
         )
-        metrics["probe_precision"] = precision
-        metrics["probe_recall"] = recall
-        metrics["probe_f1"] = f1
+        metrics["probe_precision"] = float(precision)
+        metrics["probe_recall"] = float(recall)
+        metrics["probe_f1"] = float(f1)
         
         # AUC if we have both classes
         if len(np.unique(labels)) > 1:
             try:
-                metrics["probe_auc"] = roc_auc_score(labels, probs)
+                metrics["probe_auc"] = float(roc_auc_score(labels, probs))
             except ValueError:
                 # Handle case where AUC can't be computed
                 metrics["probe_auc"] = 0.0
@@ -182,11 +146,11 @@ class HookedLoraProbeEvaluationCallback(TrainerCallback):
             metrics["probe_auc"] = 0.0
         
         # Class distribution
-        positive_rate = np.mean(labels)
+        positive_rate = float(np.mean(labels))
         metrics["probe_positive_rate"] = positive_rate
         
         # Prediction distribution
-        pred_positive_rate = np.mean(predictions)
+        pred_positive_rate = float(np.mean(predictions))
         metrics["probe_pred_positive_rate"] = pred_positive_rate
         
         return metrics

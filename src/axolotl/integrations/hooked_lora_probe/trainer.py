@@ -14,6 +14,7 @@ from deepspeed import DeepSpeedEngine
 
 from axolotl.core.trainers.base import AxolotlTrainer
 
+from .losses import compute_vanilla_probe_loss, compute_max_span_aggregation_loss
 from .model import HookedModel
 
 
@@ -27,12 +28,20 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
     """
     
     def __init__(self, *args, **kwargs):
+        print(f"kwargs: {kwargs.keys()}")
         super().__init__(*args, **kwargs)
         
         # Extract probe-specific configuration
-        self.lambda_lm = 0.0
-        self.ignore_index = -100.0
-        self.max_clipped_logits = 100.0
+        self.lambda_lm = self.args.lambda_lm
+        self.anneal_max_aggr = self.args.anneal_max_aggr
+        self.anneal_warmup = self.args.anneal_warmup
+        self.span_weighting = self.args.span_weighting
+
+    def get_training_progress(self) -> float:
+        """Get the current training progress as a float between 0 and 1."""
+        if self.state.max_steps is None or self.state.max_steps == 0:
+            return 1.0
+        return min(1.0, self.state.global_step / self.state.max_steps)
 
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         """
@@ -47,109 +56,64 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         Returns:
             Combined loss tensor, optionally with outputs
         """
-        # Extract inputs
-        # print(f"--------------------------------")
-        # print(f"src.axolotl.integrations.hooked_lora_probe.trainer.HookedLoraProbeTrainer.compute_loss:61")
-        # print(f"inputs: {inputs.keys()}")
-        # print(f"input_ids[0]: {inputs['input_ids'][0][:5]} ... {inputs['input_ids'][0][100:110]} ... {inputs['input_ids'][0][-5:]}")
-        # print(f"labels[0]: {inputs['labels'][0][:5]} ... {inputs['labels'][0][100:110]} ... {inputs['labels'][0][-5:]}")
-        # print(f"probe_labels[0]: {inputs['probe_labels'][0][:5]} ... {inputs['probe_labels'][0][100:110]} ... {inputs['probe_labels'][0][-5:]}")
-        # print(f"attention_mask[0]: {inputs['attention_mask'][0][:5]} ... {inputs['attention_mask'][0][100:110]} ... {inputs['attention_mask'][0][-5:]}")
-        # print(f"--------------------------------")
-
         input_ids: Int[Tensor, 'batch_size seq_len'] = inputs["input_ids"]
         attention_mask: Int[Tensor, 'batch_size seq_len'] = inputs["attention_mask"]
         lm_labels: Int[Tensor, 'batch_size seq_len'] = inputs["labels"]  # For language modeling loss
         probe_labels: Float[Tensor, 'batch_size seq_len'] = inputs["probe_labels"]  # For probe classification loss
+        span_ids: Int[Tensor, 'batch_size seq_len'] = inputs["span_ids"]
 
-        # Forward pass
         outputs = model(
             input_ids=input_ids,
             attention_mask=attention_mask,
             labels=lm_labels,
         )
 
-        # Get outputs
         lm_logits: Float[Tensor, 'batch_size seq_len vocab_size'] = outputs["lm_logits"]
         probe_logits: Float[Tensor, 'batch_size seq_len'] = outputs["probe_logits"].squeeze(-1)
         lm_loss: Float[Tensor, ''] = outputs.get("lm_loss", torch.tensor(0.0, device=input_ids.device))
         
-        # Handle NaN in LM loss
         if torch.isnan(lm_loss):
             lm_loss = torch.tensor(0.0, device=input_ids.device)
+
+        vanilla_probe_loss = compute_vanilla_probe_loss(
+            probe_logits,
+            probe_labels,
+            attention_mask,
+            span_ids=span_ids,
+            span_weighting=self.span_weighting,
+        )
         
-        # Compute probe loss
-        probe_loss = self._compute_probe_loss(probe_logits, probe_labels, attention_mask)
-        
-        # Combine losses
-        if self.lambda_lm > 0:
-            total_loss = self.lambda_lm * lm_loss + (1 - self.lambda_lm) * probe_loss
+        if self.anneal_max_aggr:
+            omega = min(1.0, self.get_training_progress() / self.anneal_warmup)
+            max_aggr_loss = compute_max_span_aggregation_loss(
+                probe_logits,
+                probe_labels,
+                span_ids,
+                max_clipped_logits=100.0,
+                ignore_label=-100.0,
+                sparsity_penalty_weight=0.0,
+            )
+            probe_loss = vanilla_probe_loss * (1 - omega) + max_aggr_loss * omega
         else:
-            total_loss = probe_loss
+            omega = 0.0
+            max_aggr_loss = torch.tensor(0.0)
+            probe_loss = vanilla_probe_loss
+
+        # Combine losses
+        total_loss = self.lambda_lm * lm_loss + probe_loss
         
-        # Log metrics
         self.log({
-            "train_loss": total_loss.item(),
-            "train_lm_loss": lm_loss.item(),
-            "train_probe_loss": probe_loss.item(),
+            "train_loss": float(total_loss.item()),
+            "train_lm_loss": float(lm_loss.item()),
+            "train_probe_loss": float(probe_loss.item()),
+            "train_vanilla_probe_loss": float(vanilla_probe_loss.item()),
+            "train_max_aggr_loss": float(max_aggr_loss.item()),
+            "train_omega": omega,
         })
         
         if return_outputs:
             return total_loss, outputs
         return total_loss
-    
-    def _compute_probe_loss(
-        self, 
-        probe_logits: Float[Tensor, 'batch_size seq_len'], 
-        probe_labels: Float[Tensor, 'batch_size seq_len'], 
-        attention_mask: Int[Tensor, 'batch_size seq_len']
-    ) -> Float[Tensor, '']:
-        """
-        Compute binary cross-entropy loss for probe classification.
-        
-        Args:
-            probe_logits: Raw logits from probe head
-            probe_labels: Target labels (0.0, 1.0, -100.0)
-            attention_mask: Attention mask
-            
-        Returns:
-            Probe classification loss
-        """
-        # Clip logits to prevent extreme values
-        probe_logits_clipped = torch.clamp(
-            probe_logits,
-            min=-self.max_clipped_logits,
-            max=self.max_clipped_logits
-        )
-        
-        # Create mask for valid positions (not padding, not ignore_index)
-        valid_mask = (probe_labels != self.ignore_index) & (attention_mask == 1)
-        
-        if not valid_mask.any():
-            # No valid positions, return zero loss
-            return torch.tensor(0.0, device=probe_logits.device, requires_grad=True)
-        
-        try:
-            # Compute BCE loss using the same pattern as probe_loss.py
-            bce_loss = F.binary_cross_entropy_with_logits(
-                probe_logits_clipped,
-                probe_labels,
-                reduction='none'
-            )
-            
-            # Apply mask and compute mean
-            bce_loss = bce_loss[valid_mask].mean()
-            
-            # Check for NaN
-            if torch.isnan(bce_loss):
-                print(f"WARNING: NaN detected in probe BCE loss")
-                bce_loss = torch.tensor(0.0, device=probe_logits.device)
-            
-            return bce_loss
-            
-        except Exception as e:
-            print(f"Error in probe BCE loss calculation: {e}\nFallback to setting loss to 0.0")
-            return torch.tensor(0.0, device=probe_logits.device)
     
     def prediction_step(
         self, 
