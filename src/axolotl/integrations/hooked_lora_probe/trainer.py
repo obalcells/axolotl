@@ -17,6 +17,7 @@ from axolotl.core.trainers.base import AxolotlTrainer
 
 from .losses import compute_vanilla_probe_loss, compute_max_span_aggregation_loss
 from .model import HookedModel
+from .eval_utils import create_probe_compute_metrics 
 
 
 class HookedLoraProbeTrainer(AxolotlTrainer):
@@ -36,6 +37,9 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         self.anneal_max_aggr = self.args.anneal_max_aggr
         self.anneal_warmup = self.args.anneal_warmup
         self.span_weighting = self.args.span_weighting
+        self.probe_threshold = self.args.probe_threshold
+        # assert self.args.batch_eval_metrics == False, "batch_eval_metrics must be False for this trainer"
+        # self.compute_metrics = create_probe_compute_metrics(probe_threshold=self.probe_threshold)
 
     def get_training_progress(self) -> float:
         """Get the current training progress as a float between 0 and 1."""
@@ -118,7 +122,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         inputs, 
         prediction_loss_only, 
         ignore_keys=None
-    ) -> Tuple[Optional[Float[Tensor, '']], Optional[Float[Tensor, 'batch_size seq_len 1']], Optional[Float[Tensor, 'batch_size seq_len']]]:
+    ) -> Tuple[Optional[Float[Tensor, '']], Optional[Float[Tensor, 'batch_size seq_len 1']], Optional[Tuple[Float[Tensor, 'batch_size seq_len'], Int[Tensor, 'batch_size seq_len'], Int[Tensor, 'batch_size seq_len']]]]:
         """
         Perform a prediction step.
         
@@ -129,7 +133,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             ignore_keys: Keys to ignore in outputs
             
         Returns:
-            Tuple of (loss, logits, labels)
+            Tuple of (loss, logits, labels) where labels includes probe_labels, attention_mask, and span_ids for evaluation
         """
         inputs = self._prepare_inputs(inputs)
         
@@ -146,11 +150,17 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             if prediction_loss_only:
                 return (loss, None, None)
             
-            # Return probe logits and token labels for evaluation
+            # Return probe logits and structured labels for evaluation
             probe_logits: Float[Tensor, 'batch_size seq_len 1'] = outputs["probe_logits"]
             probe_labels: Float[Tensor, 'batch_size seq_len'] = inputs["probe_labels"]
+            attention_mask: Int[Tensor, 'batch_size seq_len'] = inputs["attention_mask"]
+            span_ids: Int[Tensor, 'batch_size seq_len'] = inputs["span_ids"]
             
-            return (loss, probe_logits, probe_labels)
+            # Package labels as tuple for eval_utils
+            # TODO: Make sure we don't break the callback if we change this
+            structured_labels = (probe_labels, attention_mask, span_ids)
+            
+            return (loss, probe_logits, structured_labels)
     
     def _get_probe_head_from_model(self, model: Union[PreTrainedModel, PeftModelForCausalLM, HookedModel, DeepSpeedEngine]):
         """Extract probe head from model, handling different model types."""

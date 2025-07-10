@@ -146,12 +146,17 @@ class HookedLoraProbeEvaluationCallback(TrainerCallback):
         # Display metrics in a pretty table format
         print(f"DISPLAYING METRICS")
         self._display_metrics_table(aggregated_metrics)
+
+        # Convert to float so that we can serialize it to JSON later
+        aggregated_metrics = {k: float(v) for k, v in aggregated_metrics.items()}
         
         # Add to trainer's log history
         if state.log_history:
-            state.log_history[-1].update({k: float(v) for k, v in aggregated_metrics.items()})
+            state.log_history[-1].update(aggregated_metrics)
         else:
-            state.log_history.append({k: float(v) for k, v in aggregated_metrics.items()})
+            state.log_history.append(aggregated_metrics)
+
+        return aggregated_metrics
     
     def _compute_aggregated_metrics(self, all_probs: Dict[str, List], all_preds: Dict[str, List], all_labels: Dict[str, List]) -> Dict[str, float]:
         """

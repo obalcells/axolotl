@@ -30,3 +30,4 @@ class ProbeTrainingArgsMixin:
     anneal_max_aggr: bool = True  # Whether to anneal max_aggr loss
     anneal_warmup: float = 1.0  # Warmup for annealing max_aggr loss
     span_weighting: float = 10.0  # Weight for the tokens within annotated spans
+    probe_threshold: float = 0.5  # Classification threshold for evaluation

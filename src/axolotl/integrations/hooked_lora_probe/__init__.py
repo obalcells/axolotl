@@ -66,10 +66,11 @@ class HookedLoraProbePlugin(BasePlugin):
     def add_callbacks_post_trainer(self, cfg, trainer):
         """Add probe-specific callbacks."""
         if cfg.hooked_lora_probe_enabled:
-            from .callbacks import HookedLoraProbeEvaluationCallback
-            callback = HookedLoraProbeEvaluationCallback(
-                probe_threshold=cfg.probe_threshold,
-                eval_steps=cfg.probe_eval_steps,
-            )
-            return [callback]
+            # from .callbacks import HookedLoraProbeEvaluationCallback
+            # callback = HookedLoraProbeEvaluationCallback(
+            #     probe_threshold=cfg.probe_threshold,
+            #     eval_steps=cfg.probe_eval_steps,
+            # )
+            # return [callback]
+            pass
         return []
