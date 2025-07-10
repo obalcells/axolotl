@@ -16,6 +16,8 @@ class ProbeArgs(BaseModel):
     anneal_warmup: float = 1.0  # Warmup for annealing max_aggr loss
     probe_threshold: float = 0.5  # Classification threshold for evaluation
     span_weighting: float = 10.0  # Weight for the tokens within annotated spans
+    kl_penalty_weight: float = 0.0  # Weight for KL divergence penalty (0.0 = no penalty)
+    kl_penalty_temperature: float = 1.0  # Temperature for KL divergence penalty
 
 
 @dataclass
@@ -31,3 +33,5 @@ class ProbeTrainingArgsMixin:
     anneal_warmup: float = 1.0  # Warmup for annealing max_aggr loss
     span_weighting: float = 10.0  # Weight for the tokens within annotated spans
     probe_threshold: float = 0.5  # Classification threshold for evaluation
+    kl_penalty_weight: float = 0.0  # Weight for KL divergence penalty (0.0 = no penalty)
+    kl_penalty_temperature: float = 1.0  # Temperature for KL divergence penalty

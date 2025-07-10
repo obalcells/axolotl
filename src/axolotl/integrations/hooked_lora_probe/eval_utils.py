@@ -75,7 +75,10 @@ class ProbeEvaluator:
             span_ids = torch.from_numpy(span_ids)
         
         # Compute probabilities and predictions
-        probe_probs = torch.sigmoid(probe_logits.squeeze(-1))
+        # Handle different logits shapes - ensure we have [batch_size, seq_len]
+        if probe_logits.dim() == 3 and probe_logits.shape[-1] == 1:
+            probe_logits = probe_logits.squeeze(-1)
+        probe_probs = torch.sigmoid(probe_logits)
         probe_preds = (probe_probs > self.probe_threshold).float()
         
         # Compute metrics at different aggregation levels
@@ -94,7 +97,7 @@ class ProbeEvaluator:
         span_ids: Optional[Int[Tensor, 'batch_size seq_len']] = None
     ) -> Dict[str, float]:
         """
-        Compute classification metrics for different aggregation levels using vectorized operations.
+        Compute classification metrics for different aggregation levels.
         
         Args:
             probe_probs: Probe prediction probabilities
@@ -135,14 +138,14 @@ class ProbeEvaluator:
                 metrics.update(span_metrics)
             
             # 3. Span max metrics (max aggregation over spans)
-            span_max_metrics = self._compute_span_max_metrics_vectorized(
+            span_max_metrics = self._compute_span_max_metrics(
                 probe_probs, probe_preds, probe_labels, span_ids
             )
             metrics.update(span_max_metrics)
         
         return metrics
     
-    def _compute_span_max_metrics_vectorized(
+    def _compute_span_max_metrics(
         self,
         probe_probs: Float[Tensor, 'batch_size seq_len'],
         probe_preds: Float[Tensor, 'batch_size seq_len'],

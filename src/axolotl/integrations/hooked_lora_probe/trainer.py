@@ -15,7 +15,7 @@ from deepspeed import DeepSpeedEngine
 
 from axolotl.core.trainers.base import AxolotlTrainer
 
-from .losses import compute_vanilla_probe_loss, compute_max_span_aggregation_loss
+from .losses import compute_vanilla_probe_loss, compute_max_span_aggregation_loss, compute_kl_penalty
 from .model import HookedModel
 from .eval_utils import create_probe_compute_metrics 
 
@@ -38,8 +38,10 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
         self.anneal_warmup = self.args.anneal_warmup
         self.span_weighting = self.args.span_weighting
         self.probe_threshold = self.args.probe_threshold
+        self.kl_penalty_weight = self.args.kl_penalty_weight
+        self.kl_penalty_temperature = self.args.kl_penalty_temperature
         # assert self.args.batch_eval_metrics == False, "batch_eval_metrics must be False for this trainer"
-        # self.compute_metrics = create_probe_compute_metrics(probe_threshold=self.probe_threshold)
+        self.compute_metrics = create_probe_compute_metrics(probe_threshold=self.probe_threshold)
 
     def get_training_progress(self) -> float:
         """Get the current training progress as a float between 0 and 1."""
@@ -100,8 +102,19 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             max_aggr_loss = torch.tensor(0.0)
             probe_loss = vanilla_probe_loss
 
+        # Compute KL penalty if enabled
+        kl_penalty = torch.tensor(0.0, device=input_ids.device)
+        if self.kl_penalty_weight is not None and self.kl_penalty_weight > 0.0:
+            kl_penalty = compute_kl_penalty(
+                model=model,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                temperature=self.kl_penalty_temperature,
+                reduction='mean'
+            )
+        
         # Combine losses
-        total_loss = self.lambda_lm * lm_loss + probe_loss
+        total_loss = self.lambda_lm * lm_loss + probe_loss + self.kl_penalty_weight * kl_penalty
         
         self.log({
             "train_loss": float(total_loss.item()),
@@ -109,6 +122,7 @@ class HookedLoraProbeTrainer(AxolotlTrainer):
             "train_probe_loss": float(probe_loss.item()),
             "train_vanilla_probe_loss": float(vanilla_probe_loss.item()),
             "train_max_aggr_loss": float(max_aggr_loss.item()),
+            "train_kl_penalty": float(kl_penalty.item()),
             "train_omega": omega,
         })
         

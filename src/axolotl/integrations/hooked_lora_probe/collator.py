@@ -32,6 +32,9 @@ class DataCollatorForProbe(DataCollatorForSeq2Seq):
         super().__init__(*args, **kwargs)
         self.tokenizer.deprecation_warnings["Asking-to-pad-a-fast-tokenizer"] = True
         assert self.tokenizer.padding_side == "right"
+        if self.tokenizer.pad_token is None:
+            print(f"tokenizer.pad_token is None, setting to eos_token {repr(self.tokenizer.eos_token)}")
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
     def __call__(self, features: List[Dict[str, Any]], return_tensors=None) -> Dict[str, torch.Tensor]:
         if return_tensors is None:
@@ -41,6 +44,7 @@ class DataCollatorForProbe(DataCollatorForSeq2Seq):
         for feature_name, pad_token_id in [
             ("labels", self.label_pad_token_id),
             ("probe_labels", self.label_pad_token_id),
+            ("span_ids", self.label_pad_token_id),
             ("position_ids", self.position_pad_token_id),
         ]:
             feat = (

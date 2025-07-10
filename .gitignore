@@ -190,3 +190,5 @@ out/
 
 # vim
 *.swp
+
+prepared_datasets/*

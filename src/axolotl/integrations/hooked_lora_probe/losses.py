@@ -7,6 +7,8 @@ import torch.nn.functional as F
 from jaxtyping import Float, Int
 from torch import Tensor
 from typing import Optional
+from transformers import AutoModelForCausalLM
+from peft import PeftModel
 
 
 def compute_vanilla_probe_loss(
@@ -193,3 +195,86 @@ def compute_sparsity_loss(
     sparsity_loss = torch.mean(sparsity_probs ** 2)
     
     return sparsity_loss
+
+
+def compute_kl_penalty(
+    model: AutoModelForCausalLM,
+    input_ids: Float[Tensor, 'batch_size seq_len'],
+    attention_mask: Float[Tensor, 'batch_size seq_len'],
+    temperature: float = 1.0,
+    reduction: str = 'mean',
+) -> torch.Tensor:
+    """
+    Compute KL divergence penalty between base model and LoRA-adapted model.
+    
+    Args:
+        lm_model: The language model (potentially with LoRA adapters)
+        input_ids: Input token IDs
+        attention_mask: Attention mask
+        temperature: Temperature for softmax (default: 1.0)
+        reduction: How to reduce the KL divergence ('mean', 'sum', 'none')
+        
+    Returns:
+        KL divergence penalty as a scalar tensor
+    """
+    device = input_ids.device
+    
+    # Get logits from base model (without adapters)
+    try:
+        with model.disable_adapter():
+            base_logits: Float[Tensor, 'batch_size seq_len vocab_size'] = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                output_hidden_states=False,
+            ).logits
+    except:
+        print(f"WARNING: Failed to get logits from base model. Returning 0.0")
+        return torch.tensor(0.0, device=device)
+    
+    # Get logits from adapted model (with adapters)
+    adapted_logits: Float[Tensor, 'batch_size seq_len vocab_size'] = lm_model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        output_hidden_states=False,
+    ).logits
+    
+    # Apply temperature scaling
+    base_logits = base_logits / temperature
+    adapted_logits = adapted_logits / temperature
+    
+    # Convert to log probabilities
+    base_log_probs = F.log_softmax(base_logits, dim=-1)
+    adapted_log_probs = F.log_softmax(adapted_logits, dim=-1)
+    
+    # Compute KL divergence: KL(adapted || base)
+    # KL(P||Q) = sum(P * log(P/Q)) = sum(P * (log(P) - log(Q)))
+    adapted_probs = torch.exp(adapted_log_probs)
+    kl_div = adapted_probs * (adapted_log_probs - base_log_probs)
+    
+    # Sum over vocabulary dimension
+    kl_div = kl_div.sum(dim=-1)  # Shape: [batch_size, seq_len]
+    
+    # Apply attention mask to ignore padded tokens
+    if attention_mask is not None:
+        kl_div = kl_div * attention_mask
+        
+    # Reduce according to specified reduction method
+    if reduction == 'mean':
+        if attention_mask is not None:
+            # Mean over non-padded tokens
+            kl_penalty = kl_div.sum() / attention_mask.sum()
+        else:
+            kl_penalty = kl_div.mean()
+    elif reduction == 'sum':
+        kl_penalty = kl_div.sum()
+    elif reduction == 'none':
+        kl_penalty = kl_div
+    else:
+        raise ValueError(f"Invalid reduction method: {reduction}")
+    
+    # Check for NaN
+    if torch.isnan(kl_penalty):
+        print(f"WARNING: NaN detected in KL penalty. Returning 0.0")
+        kl_penalty = torch.tensor(0.0, device=device)
+    
+    return kl_penalty

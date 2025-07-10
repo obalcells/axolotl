@@ -8,6 +8,7 @@ from huggingface_hub import HfApi, hf_hub_download
 import sys
 from pathlib import Path
 import os
+import argparse
 
 
 PROBES_FOLDER = Path.home() / "probes"
@@ -113,7 +114,11 @@ def download_adapter_from_hf(
             shutil.rmtree(temp_dir, ignore_errors=True)
             print(f"Cleaned up temporary folder: {temp_dir}")
 
-probe_id = "final_probe_20250515_193252"
+parser = argparse.ArgumentParser()
+parser.add_argument("--probe_id", type=str, default="llama3_1_8b")
+args = parser.parse_args()
+
+probe_id = args.probe_id
 
 base_model = AutoModelForCausalLM.from_pretrained(
     "meta-llama/Meta-Llama-3.1-8B-Instruct",

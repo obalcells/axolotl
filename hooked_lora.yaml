@@ -1,11 +1,17 @@
-base_model: meta-llama/Meta-Llama-3.1-8B-Instruct
-model_type: AutoModelForCausalLM
+# --- PLUGIN ARGS ---
 
-tokenizer_type: AutoTokenizer
+plugins:
+  - axolotl.integrations.hooked_lora_probe.HookedLoraProbePlugin
 
-load_in_8bit: false
-load_in_4bit: false
+hooked_lora_probe_enabled: true
+probe_layer_idx: 30
+probe_threshold: 0.5
+lambda_lm: 0.0
+kl_penalty_weight: 1.0
 
+# --- DATASETS ---
+
+# Chat data (pirate):
 # chat_template: llama3
 # datasets:
 #   - path: winglian/pirate-ultrachat-10k
@@ -13,22 +19,48 @@ load_in_4bit: false
 #     split: train
 #     eot_tokens: <|end_of_text|>
 
+# LongFact loaded from disk:
+# datasets:
+#   - path: /root/axolotl/prepared_datasets/longfact_validation_0ce9d3ea
+#     type:
+
+# Training data for llama 3.1 8b instruct:
 datasets:
-  - path: ./axolotl/prepared_datasets/longfact_validation_0ce9d3ea
+  - path: obalcells/hallucination-heads-tokenized
+    name: llama3_1_8b_train_f5199b3a
+    split: train
     type:
 
-adapter: lora
-lora_model_dir:
+# Validation data for llama 3.1 8b instruct:
+# datasets:
+#   - path: obalcells/hallucination-heads-tokenized
+#     name: Meta-Llama-3.1-8B-Instruct
+#     split: validation
+#     type:
 
-val_set_size: 0.1
-output_dir: ./outputs/llama3_1_8b_hooked_lora_probe_v1
-
-sequence_len: 1216
+val_set_size: 0.2
+sequence_len: 1536
 sample_packing: false
 pad_to_sequence_len: true
 
-lora_r: 32
-lora_alpha: 64
+# --- MODEL ---
+
+base_model: meta-llama/Meta-Llama-3.1-8B-Instruct
+model_type: AutoModelForCausalLM
+tokenizer_type: AutoTokenizer
+
+# --- ADAPTERS ---
+
+load_in_8bit: false
+load_in_4bit: false
+
+adapter: lora
+lora_model_dir: /root/probes/llama3_1_8b
+
+output_dir: /root/axolotl/outputs/llama3_1_8b_probe_kl_div
+
+lora_r: 16
+lora_alpha: 32
 lora_dropout: 0.05
 lora_target_modules:
   - gate_proj
@@ -39,14 +71,20 @@ lora_target_modules:
   - k_proj
   - o_proj
 
-wandb_project:
+# --- WANDB ---
+
+use_wandb: true
+wandb_project: hallucination-heads-kl-testing
 wandb_entity:
 wandb_watch:
 wandb_name:
 wandb_log_model:
 
-gradient_accumulation_steps: 1
-micro_batch_size: 4
+# --- TRAINING ---
+
+# always have an effective batch size of 32
+gradient_accumulation_steps: 4
+micro_batch_size: 8
 num_epochs: 1
 
 # optimizer: paged_adamw_8bit
@@ -66,24 +104,15 @@ loss_watchdog_threshold: 5.0
 loss_watchdog_patience: 3
 
 warmup_steps: 0
-evals_per_epoch: 4
+evals_per_epoch: 1
 saves_per_epoch: 1
-weight_decay: 1.0
-special_tokens:
-  pad_token: "<|end_of_text|>"
 
 dataloader_prefetch_factor: 8
 dataloader_num_workers: 2
 dataloader_pin_memory: true
 
-plugins:
-  - axolotl.integrations.hooked_lora_probe.HookedLoraProbePlugin
+# deepspeed: /root/axolotl/deepspeed_configs/zero2.json
 
-hooked_lora_probe_enabled: true
-probe_layer_idx: 30
-probe_threshold: 0.5
-lambda_lm: 0.0
+weight_decay: 0.0
 
-# ---
-
-max_steps: 100
+max_steps: 50

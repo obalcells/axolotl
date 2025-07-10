@@ -1,0 +1,31 @@
+
+{
+  "llama3_1_8b_simplified_longfact_val/lm_loss": 1.4370140812613748,
+  "llama3_1_8b_simplified_longfact_val/probe_loss": 0.1629579449919137,
+  "llama3_1_8b_simplified_longfact_val/sparsity": 0.113956114446575,
+  "llama3_1_8b_simplified_longfact_val/probe_threshold": 0.5,
+  "llama3_1_8b_simplified_longfact_val/all_tokens_accuracy": 0.9356244622921936,
+  "llama3_1_8b_simplified_longfact_val/all_tokens_precision": 0.3292219312325758,
+  "llama3_1_8b_simplified_longfact_val/all_tokens_recall": 0.4610197562995386,
+  "llama3_1_8b_simplified_longfact_val/all_tokens_f1": 0.3841301133563332,
+  "llama3_1_8b_simplified_longfact_val/all_tokens_auc": 0.9026551352892727,
+  "llama3_1_8b_simplified_longfact_val/entity_tokens_accuracy": 0.7173937051352843,
+  "llama3_1_8b_simplified_longfact_val/entity_tokens_precision": 0.8739627719219556,
+  "llama3_1_8b_simplified_longfact_val/entity_tokens_recall": 0.4610197562995386,
+  "llama3_1_8b_simplified_longfact_val/entity_tokens_f1": 0.6036245353159851,
+  "llama3_1_8b_simplified_longfact_val/entity_tokens_auc": 0.8483571134415356,
+  "llama3_1_8b_simplified_longfact_val/entity_span_max_accuracy": 0.8266048974189278,
+  "llama3_1_8b_simplified_longfact_val/entity_span_max_precision": 0.8009132420091324,
+  "llama3_1_8b_simplified_longfact_val/entity_span_max_recall": 0.7413355874894336,
+  "llama3_1_8b_simplified_longfact_val/entity_span_max_f1": 0.7699736611062336,
+  "llama3_1_8b_simplified_longfact_val/entity_span_max_auc": 0.9011903727677351,
+  "epoch": 1.0, "global_step": 247, "training_progress": 1.0,
+  "dataset_id": "llama3_1_8b_simplified_longfact_val"
+}
+
+
+
+
+
+
+

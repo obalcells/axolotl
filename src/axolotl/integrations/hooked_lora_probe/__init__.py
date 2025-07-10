@@ -44,6 +44,9 @@ class HookedLoraProbePlugin(BasePlugin):
             "anneal_max_aggr": cfg.anneal_max_aggr,
             "anneal_warmup": cfg.anneal_warmup,
             "span_weighting": cfg.span_weighting,
+            "probe_threshold": cfg.probe_threshold,
+            "kl_penalty_weight": cfg.kl_penalty_weight,
+            "kl_penalty_temperature": cfg.kl_penalty_temperature,
             "label_names": ["probe_labels", "labels", "span_ids"],
         }
     
@@ -65,12 +68,11 @@ class HookedLoraProbePlugin(BasePlugin):
 
     def add_callbacks_post_trainer(self, cfg, trainer):
         """Add probe-specific callbacks."""
-        if cfg.hooked_lora_probe_enabled:
-            # from .callbacks import HookedLoraProbeEvaluationCallback
-            # callback = HookedLoraProbeEvaluationCallback(
-            #     probe_threshold=cfg.probe_threshold,
-            #     eval_steps=cfg.probe_eval_steps,
-            # )
-            # return [callback]
-            pass
+        # if cfg.hooked_lora_probe_enabled:
+        #     from .callbacks import HookedLoraProbeEvaluationCallback
+        #     callback = HookedLoraProbeEvaluationCallback(
+        #         probe_threshold=cfg.probe_threshold,
+        #         eval_steps=cfg.probe_eval_steps,
+        #     )
+        #     return [callback]
         return []

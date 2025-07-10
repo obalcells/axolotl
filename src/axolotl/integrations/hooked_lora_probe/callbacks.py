@@ -383,17 +383,17 @@ class HookedLoraProbeEvaluationCallback(TrainerCallback):
         
         return metrics
     
-    def on_log(self, args, state: TrainerState, control: TrainerControl, 
-               model=None, **kwargs) -> None:
-        """
-        Called when logging metrics.
+    # def on_log(self, args, state: TrainerState, control: TrainerControl, 
+    #            model=None, **kwargs) -> None:
+    #     """
+    #     Called when logging metrics.
         
-        Args:
-            args: Training arguments
-            state: Current trainer state
-            control: Trainer control object
-            model: The model being trained
-            **kwargs: Additional arguments
-        """
-        # Add probe-specific logging if needed
-        pass
+    #     Args:
+    #         args: Training arguments
+    #         state: Current trainer state
+    #         control: Trainer control object
+    #         model: The model being trained
+    #         **kwargs: Additional arguments
+    #     """
+    #     # Add probe-specific logging if needed
+    #     pass
